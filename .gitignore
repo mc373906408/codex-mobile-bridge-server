@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.local/
+.tmp/
+bin/
+*.key
+*.p8
+*.pem
+*redemption*.csv
+*redemption*.json
+coverage.out

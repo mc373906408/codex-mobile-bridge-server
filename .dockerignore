@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+.local
+.tmp
+bin
+coverage.out
+*.key
+*.p8
+*.pem
+*redemption*.csv
+*redemption*.json

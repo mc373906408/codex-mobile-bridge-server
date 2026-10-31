@@ -1,0 +1,115 @@
+services:
+  database:
+    image: postgres:18.1-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_admin_password
+      PGDATA: /var/lib/postgresql/18/docker
+    secrets:
+      - database_admin_password
+      - database_password
+    volumes:
+      - database_data:/var/lib/postgresql
+      - ./deploy/initdb.sql:/docker-entrypoint-initdb.d/001-bridge.sql:ro
+    networks:
+      - database
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U postgres -d postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+
+  server:
+    build: .
+    image: bridge-server:local
+    restart: unless-stopped
+    init: true
+    environment:
+      BRIDGE_MODE: ${BRIDGE_MODE:-selfhost}
+      BRIDGE_LISTEN: 0.0.0.0:8080
+      BRIDGE_ORIGIN: https://${BRIDGE_DOMAIN:?Set BRIDGE_DOMAIN in .env}
+      BRIDGE_ADMIN_LOGIN: ${BRIDGE_ADMIN_LOGIN:?Set the bootstrap administrator login}
+      BRIDGE_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      DATABASE_URL_FILE: /run/secrets/database_url
+      BRIDGE_DATA_KEY_FILE: /run/secrets/data_key
+      BRIDGE_TRUSTED_PROXIES: ${BRIDGE_PROXY_IP:-172.30.74.2}/32
+      BRIDGE_MAX_CONNECTIONS: ${BRIDGE_MAX_CONNECTIONS:-1024}
+      BRIDGE_BYTES_PER_SECOND: ${BRIDGE_BYTES_PER_SECOND:-1048576}
+    secrets:
+      - database_url
+      - data_key
+      - admin_password
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - database
+      - edge
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, /bridge-server, healthcheck]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+
+  https:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      BRIDGE_DOMAIN: ${BRIDGE_DOMAIN:?Set BRIDGE_DOMAIN in .env}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      edge:
+        ipv4_address: ${BRIDGE_PROXY_IP:-172.30.74.2}
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+
+secrets:
+  database_admin_password:
+    file: ./.local/secrets/database_admin_password
+  database_password:
+    file: ./.local/secrets/database_password
+  database_url:
+    file: ./.local/secrets/database_url
+  data_key:
+    file: ./.local/secrets/data_key
+  admin_password:
+    file: ./.local/secrets/admin_password
+
+volumes:
+  database_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  database:
+    internal: true
+  edge:
+    ipam:
+      config:
+        - subnet: ${BRIDGE_EDGE_SUBNET:-172.30.74.0/28}

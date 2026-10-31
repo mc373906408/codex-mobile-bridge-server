@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf" content="{{.CSRF}}"><title>Bridge / Cloud console</title>
+  <link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
+</head>
+<body data-mode="{{.Mode}}">
+<header><a class="wordmark" href="/">BRIDGE<span>/ CLOUD</span></a><span class="badge">{{if .Hosted}}OFFICIAL HOSTING{{else}}INDEPENDENT SELF-HOST{{end}}</span></header>
+<main>
+  <aside class="intro"><p class="eyebrow">YOUR MACHINES. YOUR KEYS.</p><h1>A private bridge,<br>not another inbox.</h1><p class="lede">Connect your desktop and phone without handing the cloud your conversations.</p><div class="diagram" aria-hidden="true"><span>DESKTOP</span><i></i><b>ENCRYPTED</b><i></i><span>PHONE</span></div><p class="fine">The cloud routes encrypted records. Pairing is always approved on your desktop. This console never opens or executes a chat.</p></aside>
+  <section class="console">
+  <div id="message" role="status" aria-live="polite"></div>
+  {{if .Verify}}
+    <p class="eyebrow">ACCOUNT SECURITY</p><h2>Verify your email</h2><p>Use the one-time link sent to your own mailbox.</p><form id="verify"><button>Confirm email ownership</button></form>
+  {{else if .Reset}}
+    <p class="eyebrow">ACCOUNT SECURITY</p><h2>A fresh password</h2><p>Resetting your password revokes cloud sessions. It does not recover encryption keys.</p><form id="reset"><label>New password<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label><button>Reset password</button></form>
+  {{else if not .Authenticated}}
+    <p class="eyebrow">{{if .Hosted}}EMAIL ACCOUNT{{else}}LOCAL ACCOUNT{{end}}</p><h2>Make the connection.</h2>
+    <form id="login"><label>{{if .Hosted}}Email{{else}}Username{{end}}<input name="login" type="{{if .Hosted}}email{{else}}text{{end}}" autocomplete="username" maxlength="254" required></label><label>Password<input name="password" type="password" maxlength="256" autocomplete="current-password" required></label><button>Sign in <span aria-hidden="true">&rarr;</span></button></form>
+    {{if .Hosted}}<details><summary>Create an account</summary><form id="register"><label>Email<input name="login" type="email" maxlength="254" required autocomplete="email"></label><label>Password (12+ characters)<input name="password" type="password" minlength="12" maxlength="256" required autocomplete="new-password"></label><button>Create and send verification</button></form></details><details><summary>Email verification / password help</summary><form id="mail"><label>Email<input name="login" type="email" required></label><button name="purpose" value="verification">Resend verification</button><button name="purpose" value="forgot" class="secondary">Send password reset</button></form></details>{{else}}<p class="fine">Public registration and redemption are disabled. Ask your local administrator for an account. This server does not contact an official account or billing service.</p>{{end}}
+  {{else}}
+    <p class="eyebrow">CONNECTED ACCOUNT</p><h2>{{.Account.Login}}</h2><div id="entitlement" class="status-card">Checking server-authoritative entitlement...</div>
+    {{if .Hosted}}<form id="redeem"><label>Service-days redemption code<input name="code" autocomplete="off" maxlength="128" required></label><button>Redeem days</button></form><p class="fine">Codes extend account service time, not device authorization. Devices still require desktop pairing approval.</p>{{end}}
+    <details open><summary>Your gateways and bindings</summary><div id="devices"></div></details>
+    <details><summary>Cloud sessions</summary><div id="sessions"></div></details>
+    {{if .Account.Administrator}}
+    <details open><summary>Administrator workspace</summary><div id="runtime" class="fine"></div>
+      {{if not .Hosted}}<form id="create-user"><label>Local username<input name="login" required pattern="[a-z0-9][a-z0-9_.-]{2,63}"></label><label>Initial password<input name="password" type="password" minlength="12" maxlength="256" required autocomplete="new-password"></label><button>Create local user</button></form>{{end}}
+      <div id="users"></div>
+      {{if .Hosted}}<form id="codes"><div class="row"><label>Days<input name="days" type="number" min="1" max="3650" value="30" required></label><label>Codes<input name="count" type="number" min="1" max="100" value="1" required></label></div><button>Generate and export once</button></form><p class="fine">Only digests are retained. Downloaded codes cannot be recovered from this server. Never commit exports to Git.</p><div id="code-list"></div><details><summary>Redemption records</summary><div id="redemptions"></div></details>{{end}}
+      <details><summary>Operation audit</summary><div id="audit"></div></details>
+    </details>
+    {{end}}
+    <button id="logout" class="secondary">Sign out</button><details class="danger"><summary>Delete account permanently</summary><p>Removes cloud devices, sessions and pending tasks. Local desktop jobs and encryption keys are not recovered or replayed.</p><form id="delete-account"><label>Current password<input name="password" type="password" required autocomplete="current-password"></label><button>Delete this account</button></form></details>
+  {{end}}
+  </section>
+</main>
+<footer><span>01 / CONTROL STAYS AT THE EDGE</span><span>MIT open source &middot; No offline command queue</span></footer>
+</body></html>

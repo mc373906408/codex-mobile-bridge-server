@@ -1,0 +1,17 @@
+# Explicit opt-in overlay: hosted mode cannot start without verified TLS SMTP.
+services:
+  server:
+    environment:
+      BRIDGE_MODE: hosted
+      SMTP_ADDRESS: ${SMTP_ADDRESS:?Set the SMTP host and port}
+      SMTP_HOST: ${SMTP_HOST:?Set the SMTP TLS verification hostname}
+      SMTP_FROM: ${SMTP_FROM:?Set the sender email address}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+    secrets:
+      - smtp_password
+
+secrets:
+  smtp_password:
+    file: ./.local/secrets/smtp_password
