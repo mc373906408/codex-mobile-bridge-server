@@ -11,14 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 NAMES = ("database_admin_password", "database_password", "database_url", "data_key", "admin_password")
 
 
-def generate(root, domain, admin_login, mode="selfhost"):
+def generate(root, domain, admin_login="admin", mode="selfhost"):
     if mode not in {"selfhost", "hosted"}:
         raise ValueError("Deployment mode must be selfhost or hosted")
     if len(domain) > 253 or not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", domain):
         raise ValueError("Use a lower-case DNS hostname without a URL, port or path")
-    pattern = r"[a-z0-9][a-z0-9_.-]{2,63}" if mode == "selfhost" else r"[a-z0-9._+%-]+@[a-z0-9.-]+\.[a-z]{2,63}"
-    if not re.fullmatch(pattern, admin_login) or len(admin_login) > 254:
-        raise ValueError("Use a local administrator username, or an email address in hosted mode")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{2,63}", admin_login):
+        raise ValueError("Use an administrator username with 3 to 64 lower-case letters, digits, dots, underscores or hyphens")
     root = Path(root).resolve()
     folder = root / ".local/secrets"
     if not folder.resolve().is_relative_to(root) or (root / ".local").is_symlink() or folder.is_symlink():
@@ -33,7 +32,7 @@ def generate(root, domain, admin_login, mode="selfhost"):
         "database_password": password,
         "database_url": f"postgresql://bridge:{password}@database:5432/bridge?sslmode=disable",
         "data_key": base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
-        "admin_password": secrets.token_urlsafe(32),
+        "admin_password": "admin" if admin_login == "admin" else secrets.token_urlsafe(32),
     }
     folder.mkdir(parents=True, mode=0o700)
     os.chmod(folder, 0o700)
@@ -57,7 +56,9 @@ def main():
     args = parser.parse_args()
     folder = generate(ROOT, args.domain, args.admin_login, args.mode)
     print(f"Created .env and secret files in {folder}; no service was started.")
-    print("Keep the directory private, back up data_key separately, and read admin_password locally before first login.")
+    print("Default login is admin/admin. First login requires a new password; no initialization code is needed.")
+    print("Sign in immediately after deployment: public default credentials can be claimed by another visitor.")
+    print("Keep the directory private and back up data_key separately. Existing administrators are never reset by startup.")
 
 
 if __name__ == "__main__":

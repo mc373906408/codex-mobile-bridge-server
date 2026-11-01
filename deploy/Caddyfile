@@ -1,3 +1,12 @@
-{$BRIDGE_DOMAIN} {
+{
+    auto_https disable_redirects
+}
+
+https://{$BRIDGE_DOMAIN} {
+    tls {
+        issuer acme {
+            disable_http_challenge
+        }
+    }
     reverse_proxy server:8080
 }

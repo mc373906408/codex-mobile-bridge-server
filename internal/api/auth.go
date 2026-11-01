@@ -41,31 +41,21 @@ func (a *Server) register(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (a *Server) login(w http.ResponseWriter, r *http.Request) error {
-	var in struct {
-		Login    string `json:"login"`
-		Password string `json:"password"`
-	}
+	var in loginInput
 	if err := body(w, r, &in); err != nil {
 		return err
 	}
-	login, err := NormalizeLogin(in.Login, a.Config.Paid())
+	account, err := a.passwordAccount(r, in)
 	if err != nil {
-		return failure{401, "invalid_credentials"}
-	}
-	if err = a.limit(r, "login", login, 8, 15*time.Minute); err != nil {
 		return err
 	}
-	account, lookup := a.Store.AccountByLogin(r.Context(), login)
-	hash := account.PasswordHash
-	if lookup != nil {
-		hash = a.dummyHash
-	}
-	valid := security.VerifyPassword(in.Password, hash)
-	if lookup != nil && !errors.Is(lookup, pgx.ErrNoRows) {
-		return lookup
-	}
-	if !valid || lookup != nil || account.Disabled || !account.Verified {
-		return failure{401, "invalid_credentials"}
+	if account.CredentialsChangeRequired {
+		setup, err := a.Store.NewAdministratorSetup(r.Context(), account)
+		if err != nil {
+			return err
+		}
+		writeJSON(w, 200, map[string]any{"credentials_change_required": true, "setup_token": setup.Token, "expires_in": setup.ExpiresIn})
+		return nil
 	}
 	tokens, err := a.Store.NewSession(r.Context(), account, a.Config, false)
 	if err != nil {
@@ -251,6 +241,9 @@ func (a *Server) redeem(w http.ResponseWriter, r *http.Request) error {
 	p, err := a.principal(r)
 	if err != nil {
 		return err
+	}
+	if r.Header.Get("Authorization") == "" {
+		return failure{403, "redemption_client_only"}
 	}
 	if !a.Config.Paid() {
 		return failure{404, "redemption_disabled"}

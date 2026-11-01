@@ -1,40 +1,65 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{.Language}}">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="csrf" content="{{.CSRF}}"><title>Bridge / Cloud console</title>
+  <meta name="csrf" content="{{.CSRF}}"><title>{{if .Home}}{{.Text.home_title}}{{else}}{{.Text.page_title}}{{end}}</title>
   <link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
 </head>
-<body data-mode="{{.Mode}}">
-<header><a class="wordmark" href="/">BRIDGE<span>/ CLOUD</span></a><span class="badge">{{if .Hosted}}OFFICIAL HOSTING{{else}}INDEPENDENT SELF-HOST{{end}}</span></header>
+<body class="public-page" data-mode="{{.Mode}}" data-load-error="{{.Text.network_error}}">
+<header>
+  <a class="wordmark" href="/">BRIDGE<span>/ CLOUD</span></a>
+  <div class="header-tools">
+    {{if not .Login}}<a class="home-admin-link" href="/admin">{{.Text.admin_entry}} <span aria-hidden="true">&rarr;</span></a>{{end}}
+    <span class="badge">{{if .Hosted}}{{.Text.hosting_official}}{{else}}{{.Text.hosting_selfhost}}{{end}}</span>
+    <nav class="language-nav" aria-label="{{.Text.language_label}}">
+      <a href="?lang=zh-CN" lang="zh-CN" {{if eq .Language "zh-CN"}}aria-current="true"{{end}}>&#20013;&#25991;</a>
+      <a href="?lang=en" lang="en" {{if eq .Language "en"}}aria-current="true"{{end}}>English</a>
+    </nav>
+  </div>
+</header>
 <main>
-  <aside class="intro"><p class="eyebrow">YOUR MACHINES. YOUR KEYS.</p><h1>A private bridge,<br>not another inbox.</h1><p class="lede">Connect your desktop and phone without handing the cloud your conversations.</p><div class="diagram" aria-hidden="true"><span>DESKTOP</span><i></i><b>ENCRYPTED</b><i></i><span>PHONE</span></div><p class="fine">The cloud routes encrypted records. Pairing is always approved on your desktop. This console never opens or executes a chat.</p></aside>
-  <section class="console">
-  <div id="message" role="status" aria-live="polite"></div>
-  {{if .Verify}}
-    <p class="eyebrow">ACCOUNT SECURITY</p><h2>Verify your email</h2><p>Use the one-time link sent to your own mailbox.</p><form id="verify"><button>Confirm email ownership</button></form>
+  <aside class="intro">
+    <p class="eyebrow">{{.Text.hero_eyebrow}}</p><h1>{{.Text.hero_heading_line1}}<br>{{.Text.hero_heading_line2}}</h1>
+    <p class="lede">{{.Text.hero_lede}}</p>
+    <div class="diagram" aria-hidden="true"><span>{{.Text.desktop}}</span><i></i><b>{{.Text.encrypted}}</b><i></i><span>{{.Text.phone}}</span></div>
+    <p class="fine">{{.Text.hero_fine}}</p>
+  </aside>
+  <section class="console" {{if .Home}}id="home-welcome"{{end}}>
+  <div id="message" role="status" aria-live="polite">{{if .Changed}}{{.Text.setup_complete}}{{end}}</div>
+  {{if .Setup}}
+    <p class="eyebrow">{{.Text.account_security}}</p><h2>{{.Text.setup_heading}}</h2><p>{{.Text.setup_help}}</p>
+    <form id="administrator-setup" method="post" action="/v1/admin/auth/setup">
+      <label>{{.Text.username}}<input name="login" value="{{.SetupLogin}}" type="text" pattern="[a-z0-9][a-z0-9_.-]{2,63}" minlength="3" maxlength="64" autocomplete="username" required></label>
+      <label>{{.Text.new_password}}<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+      <label>{{.Text.password_confirmation}}<input name="password_confirmation" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+      <button>{{.Text.setup_action}}</button>
+    </form>
+  {{else if .Verify}}
+    <p class="eyebrow">{{.Text.account_security}}</p><h2>{{.Text.verify_heading}}</h2><p>{{.Text.verify_help}}</p>
+    <form id="verify" method="post" action="/v1/auth/verify"><button>{{.Text.verify_action}}</button></form>
   {{else if .Reset}}
-    <p class="eyebrow">ACCOUNT SECURITY</p><h2>A fresh password</h2><p>Resetting your password revokes cloud sessions. It does not recover encryption keys.</p><form id="reset"><label>New password<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label><button>Reset password</button></form>
-  {{else if not .Authenticated}}
-    <p class="eyebrow">{{if .Hosted}}EMAIL ACCOUNT{{else}}LOCAL ACCOUNT{{end}}</p><h2>Make the connection.</h2>
-    <form id="login"><label>{{if .Hosted}}Email{{else}}Username{{end}}<input name="login" type="{{if .Hosted}}email{{else}}text{{end}}" autocomplete="username" maxlength="254" required></label><label>Password<input name="password" type="password" maxlength="256" autocomplete="current-password" required></label><button>Sign in <span aria-hidden="true">&rarr;</span></button></form>
-    {{if .Hosted}}<details><summary>Create an account</summary><form id="register"><label>Email<input name="login" type="email" maxlength="254" required autocomplete="email"></label><label>Password (12+ characters)<input name="password" type="password" minlength="12" maxlength="256" required autocomplete="new-password"></label><button>Create and send verification</button></form></details><details><summary>Email verification / password help</summary><form id="mail"><label>Email<input name="login" type="email" required></label><button name="purpose" value="verification">Resend verification</button><button name="purpose" value="forgot" class="secondary">Send password reset</button></form></details>{{else}}<p class="fine">Public registration and redemption are disabled. Ask your local administrator for an account. This server does not contact an official account or billing service.</p>{{end}}
+    <p class="eyebrow">{{.Text.account_security}}</p><h2>{{.Text.reset_heading}}</h2><p>{{.Text.reset_help}}</p>
+    <form id="reset" method="post" action="/v1/auth/reset"><label>{{.Text.new_password}}<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label><button>{{.Text.reset_action}}</button></form>
+  {{else if .Login}}
+    <p class="eyebrow">{{.Text.admin_account}}</p><h2>{{.Text.admin_heading}}</h2><p>{{.Text.admin_help}}</p>
+    <form id="login" method="post" action="/web/login">
+      <label>{{.Text.username}}<input name="login" type="text" autocomplete="username" maxlength="254" required></label>
+      <label>{{.Text.password}}<input name="password" type="password" maxlength="256" autocomplete="current-password" required></label>
+      <button>{{.Text.sign_in}} <span aria-hidden="true">&rarr;</span></button>
+    </form>
+    <p class="fine">{{.Text.admin_default_help}}</p>
+    <p class="fine">{{if .Hosted}}{{.Text.hosted_admin_help}}{{else}}{{.Text.selfhost_admin_help}}{{end}}</p>
   {{else}}
-    <p class="eyebrow">CONNECTED ACCOUNT</p><h2>{{.Account.Login}}</h2><div id="entitlement" class="status-card">Checking server-authoritative entitlement...</div>
-    {{if .Hosted}}<form id="redeem"><label>Service-days redemption code<input name="code" autocomplete="off" maxlength="128" required></label><button>Redeem days</button></form><p class="fine">Codes extend account service time, not device authorization. Devices still require desktop pairing approval.</p>{{end}}
-    <details open><summary>Your gateways and bindings</summary><div id="devices"></div></details>
-    <details><summary>Cloud sessions</summary><div id="sessions"></div></details>
-    {{if .Account.Administrator}}
-    <details open><summary>Administrator workspace</summary><div id="runtime" class="fine"></div>
-      {{if not .Hosted}}<form id="create-user"><label>Local username<input name="login" required pattern="[a-z0-9][a-z0-9_.-]{2,63}"></label><label>Initial password<input name="password" type="password" minlength="12" maxlength="256" required autocomplete="new-password"></label><button>Create local user</button></form>{{end}}
-      <div id="users"></div>
-      {{if .Hosted}}<form id="codes"><div class="row"><label>Days<input name="days" type="number" min="1" max="3650" value="30" required></label><label>Codes<input name="count" type="number" min="1" max="100" value="1" required></label></div><button>Generate and export once</button></form><p class="fine">Only digests are retained. Downloaded codes cannot be recovered from this server. Never commit exports to Git.</p><div id="code-list"></div><details><summary>Redemption records</summary><div id="redemptions"></div></details>{{end}}
-      <details><summary>Operation audit</summary><div id="audit"></div></details>
-    </details>
-    {{end}}
-    <button id="logout" class="secondary">Sign out</button><details class="danger"><summary>Delete account permanently</summary><p>Removes cloud devices, sessions and pending tasks. Local desktop jobs and encryption keys are not recovered or replayed.</p><form id="delete-account"><label>Current password<input name="password" type="password" required autocomplete="current-password"></label><button>Delete this account</button></form></details>
+    <p class="eyebrow">{{.Text.home_eyebrow}}</p><h2>{{.Text.home_heading}}</h2><p>{{.Text.home_help}}</p>
+    <ol class="home-steps">
+      <li><span>01</span><div><h3>{{.Text.home_step_desktop}}</h3><p>{{.Text.home_step_desktop_help}}</p></div></li>
+      <li><span>02</span><div><h3>{{.Text.home_step_pair}}</h3><p>{{.Text.home_step_pair_help}}</p></div></li>
+      <li><span>03</span><div><h3>{{.Text.home_step_connect}}</h3><p>{{.Text.home_step_connect_help}}</p></div></li>
+    </ol>
+    <a class="button-link" href="/admin">{{.Text.admin_entry}} <span aria-hidden="true">&rarr;</span></a>
+    <p class="fine">{{.Text.home_admin_help}}</p>
   {{end}}
   </section>
 </main>
-<footer><span>01 / CONTROL STAYS AT THE EDGE</span><span>MIT open source &middot; No offline command queue</span></footer>
+<footer><span>{{.Text.footer_control}}</span><span>{{.Text.footer_open_source}}</span></footer>
 </body></html>

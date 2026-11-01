@@ -11,7 +11,7 @@ import (
 func environment(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{"BRIDGE_MODE", "BRIDGE_LISTEN", "BRIDGE_ORIGIN", "DATABASE_URL", "BRIDGE_DEVELOPMENT",
-		"BRIDGE_ADMIN_LOGIN", "BRIDGE_ADMIN_PASSWORD", "BRIDGE_DATA_KEY", "BRIDGE_TRUSTED_PROXIES", "SMTP_ADDRESS", "SMTP_HOST",
+		"BRIDGE_ADMIN_LOGIN", "BRIDGE_ADMIN_PASSWORD", "BRIDGE_ADMIN_SETUP_TOKEN", "BRIDGE_DATA_KEY", "BRIDGE_TRUSTED_PROXIES", "SMTP_ADDRESS", "SMTP_HOST",
 		"SMTP_USER", "SMTP_FROM", "SMTP_TLS", "SMTP_PASSWORD", "UMENG_APP_KEY", "UMENG_APP_MASTER_SECRET", "UMENG_MESSAGE_SECRET",
 		"UMENG_PRODUCTION", "APNS_TEAM_ID", "APNS_KEY_ID", "APNS_TOPIC", "APNS_PRIVATE_KEY", "APNS_SANDBOX", "BRIDGE_MAX_GATEWAYS",
 		"BRIDGE_MAX_INSTALLATIONS", "BRIDGE_MAX_CONNECTIONS", "BRIDGE_MAX_PER_GATEWAY", "BRIDGE_BYTES_PER_SECOND"} {
@@ -123,5 +123,49 @@ func TestDevelopmentAndBootstrapRestrictions(t *testing.T) {
 	t.Setenv("BRIDGE_ADMIN_PASSWORD", "local-test-admin-password")
 	if _, err := Load(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDefaultAdministratorNeedsNoManualCodeInEitherMode(t *testing.T) {
+	environment(t)
+	if c, err := Load(); err != nil || c.AdminLogin != "admin" || c.AdminPassword != "admin" {
+		t.Fatal("HTTPS selfhost must support setup-only admin/admin without a manual code", err)
+	}
+	t.Setenv("BRIDGE_ADMIN_SETUP_TOKEN", "ignored-legacy-value")
+	t.Setenv("BRIDGE_ADMIN_SETUP_TOKEN_FILE", filepath.Join(t.TempDir(), "no-longer-required"))
+	if _, err := Load(); err != nil {
+		t.Fatal("legacy initialization-code settings must not prevent an upgrade", err)
+	}
+	t.Setenv("BRIDGE_MODE", "hosted")
+	t.Setenv("SMTP_ADDRESS", "smtp.example.test:465")
+	t.Setenv("SMTP_HOST", "smtp.example.test")
+	t.Setenv("SMTP_FROM", "bridge@example.test")
+	t.Setenv("SMTP_TLS", "implicit")
+	if c, err := Load(); err != nil || c.AdminLogin != "admin" || !c.Paid() {
+		t.Fatal("hosted administrators must not require an email login", err)
+	}
+}
+
+func TestSMTPSecretFileAndEmptyFileFailClosed(t *testing.T) {
+	environment(t)
+	file := filepath.Join(t.TempDir(), "smtp-password")
+	password := "test-only-smtp-password"
+	if err := os.WriteFile(file, []byte(password+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SMTP_PASSWORD_FILE", file)
+	if c, err := Load(); err != nil || c.SMTP.Password != password {
+		t.Fatal("SMTP_PASSWORD_FILE must read a file rather than treat its path as a password", err)
+	}
+	t.Setenv("SMTP_PASSWORD", "conflicting-test-password")
+	if _, err := Load(); err == nil || strings.Contains(err.Error(), password) {
+		t.Fatal("ambiguous SMTP sources must fail without credential disclosure", err)
+	}
+	t.Setenv("SMTP_PASSWORD", "")
+	if err := os.WriteFile(file, []byte(" \r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); err == nil {
+		t.Fatal("an explicitly mounted, empty secret must not silently disable protection")
 	}
 }

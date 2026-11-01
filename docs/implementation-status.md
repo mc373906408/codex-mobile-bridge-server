@@ -1,17 +1,146 @@
 # Cloud relay implementation checkpoint
 
-Local implementation only. No commit, push, deployment, production credential
-access, or live vendor push is authorized by this checkpoint. The private
-operations repository is outside the implementation scope.
+The 2026-10-30 checkpoint was local-only and did not authorize a commit, push,
+deployment or production credential access. The later server-only deployment
+below was explicitly requested by the operator. The private operations
+repository's credential files were not changed, committed, removed or rotated
+by this update.
 
-The following describes the evolving local worktrees on 2026-10-30, not a
+The historical cross-repository checks describe the local worktrees on 2026-10-30, not a
 published revision, successful hosted CI run, signed distribution, or device
 delivery result. Existing unrelated work is preserved.
+
+## Administrator console and HTTPS update on 2026-10-31
+
+- Both modes support independent administrator usernames without email. New
+  default `admin/admin` credentials allow only a ten-minute setup flow. At the
+  operator's request, the manual initialization code was removed; a different strong
+  password before account, device or management authority is granted. Successful
+  setup invalidates all setup sessions and requires a new login. The local-only
+  `reset-admin` command preserves account/device identity and revokes old sessions.
+- The website is administrator-only. Ordinary users cannot create website
+  sessions or reuse old website cookies, including after email verification.
+  Hosted email registration, verification and client bearer login remain available;
+  email verification/reset links do not grant console login authority.
+- Chinese is the default page language, with an English option and persistent
+  language preference. Static text, errors, status messages and dates are localized.
+- Public ingress is HTTPS-only: no published HTTP port, redirects or HTTP-01
+  challenge. The backend requires real TLS or an unambiguous HTTPS assertion from
+  the explicitly trusted proxy. Plaintext is allowed only for credential-free local
+  readiness/liveness probes and explicit loopback selfhost development.
+- Pinned Go 1.27.3 module verification/tidy-diff, vet and 34 PostgreSQL-backed Go
+  tests passed with no skips against an isolated ephemeral PostgreSQL 18.1
+  container. Nine deployment-helper tests and JavaScript syntax checks passed.
+  Windows had no CGO-capable C compiler; this run does not establish race coverage.
+- Browser checks on synthetic data covered first login, password confirmation,
+  mandatory credential change, fresh administrator login, local user creation,
+  and ordinary-user login rejection in Chinese and English. Layout checks found
+  no horizontal overflow at 390px and 1280px. Screenshot capture was unavailable;
+  these are functional/DOM layout checks, not pixel-level visual acceptance.
+- The Linux image was built offline and Caddy configuration validated. A private
+  database restore rehearsed migration and administrator reset under a
+  non-superuser role, preserving account IDs, public keys and approved bindings.
+  No mail/push worker ran in the rehearsal. The temporary test database and local
+  preview/tunnel processes were removed after verification.
+- The selected server was switched to hosted mode after an authenticated
+  AES-256-GCM backup. Only the backend container was recreated; the database and
+  HTTPS proxy containers, original data key, account IDs, device keys and bindings
+  were retained. Existing administrator sessions were revoked for initial setup.
+- Live checks passed for TLS hostname/certificate verification, readiness, HSTS,
+  Chinese/English pages, administrator-only capabilities, mandatory credential
+  change, public HTTP rejection and untrusted forwarded-protocol rejection.
+  SMTP TLS authentication and the sender domain's verified sending status passed.
+  No real test email or vendor push was sent; mailbox delivery, real-device
+  reconnection, signing and store acceptance remain separate checks.
+
+### No-code follow-up verification
+
+The operator removed the manual initialization-code requirement. The login form
+now contains only username and password; deployment creates five secret files
+and no code secret or mount. Internal ten-minute, single-use setup sessions,
+CSRF protection, mandatory password change, administrator-only website access
+and HTTPS enforcement remain intact. Existing unused code files were not deleted.
+
+All 34 Go/PostgreSQL tests and nine deployment-helper tests passed again with no
+skips. The restored-database migration retained administrator credentials and
+device identity. Live HTTPS checks and browser login without a code reached the
+restricted password-change page, not management controls; no new password was
+entered. Chinese/English and settled 390px/1280px layouts passed functional/DOM
+checks. Public plaintext HTTP and untrusted forwarded HTTPS were rejected.
+
+Only the backend was recreated for this follow-up. Current account credentials,
+data-key/SMTP files, account IDs, public keys, bindings, database and proxy were
+preserved; `reset-admin` was not run. An on-host DNS failure caused a verified
+automatic rollback before retrying with a loopback HTTPS probe that retained
+canonical Host, SNI and certificate verification. Public HTTPS checks then passed.
+
+### Dedicated administrator console follow-up
+
+The operator requested a real management console rather than a small homepage
+panel. `/` now remains a public service homepage, including when visited with an
+administrator cookie. Authenticated `/admin` uses a separate full-width template,
+navigation rail, live server connection metrics, responsive user/device/session
+tables and audit history. User and audit views describe their latest-200 limits;
+device/session views explicitly describe the administrator-account scope.
+
+Personal entitlement, redemption and code-configuration forms were initially removed from
+the browser. The later code-generation correction restores administrator code
+issuance in its own section, not personal redemption. Client bearer redemption
+still works; administrator website cookies
+are rejected before redeeming. Privileged code APIs remain for operator tooling,
+not ordinary clients. No desktop/mobile source, credentials, keys or billing data
+were reset or migrated to a different account.
+
+All 36 Go/PostgreSQL tests and nine deployment-helper tests passed with no skips.
+Module verification, tidy-diff, vet and JavaScript syntax checks passed. Synthetic
+hosted/selfhost browser checks covered login, search, enable-user, local-account
+creation, fresh data loading, Chinese/English and separate authenticated homepage
+navigation. Layout checks passed at 1440px, 1280px and 390px; desktop and mobile
+screenshots of synthetic data were captured and visually inspected.
+
+The offline image and isolated restored-database migration preserved credentials
+and device identity. Only the production backend was recreated after an
+authenticated encrypted backup. The existing administrator browser session loaded
+the new console without reentering credentials, with five navigation items, no
+homepage hero or redemption forms, and no data-loading error. Public bilingual
+homepage/login, readiness, HSTS and plaintext HTTP rejection passed again. The
+database/proxy containers and all credential files were unchanged; `reset-admin`
+was not run. This update did not send a real test email or vendor push.
+
+### Administrator code-generation correction on 2026-11-01
+
+The operator clarified that administrators still need code generation. Hosted
+`/admin` therefore restores a dedicated code-management section: service days and
+batch size, generation and private CSV export, unused-code revocation and
+read-only client redemption history. The download fallback retains only the
+latest batch in page memory; plaintext is never put in the metadata list or
+browser storage, and the server cannot recover it. The wide management layout,
+separate homepage and client-only service redemption are unchanged. Selfhost
+does not show hosted service-day code controls.
+
+All 36 Go/PostgreSQL tests and nine deployment-helper tests passed with no skips;
+module verification, tidy-diff, vet and JavaScript syntax checks passed. The
+synthetic hosted browser generated a two-code batch and downloaded the real CSV;
+its header, record count and code shape were verified without disclosing plaintext.
+Unused-code revocation, Chinese/English, download cleanup on navigation, invalid
+batch-size rejection and 1440px/390px DOM layouts passed. Selfhost had no code
+controls. Screenshot capture was unavailable for this correction, so these new
+layout checks are functional/DOM verification rather than pixel-level acceptance.
+
+The migration-only restored-database rehearsal retained credentials and device
+identity. Production received only a backend recreation after a verified encrypted
+backup. The existing administrator browser session loaded six navigation items,
+the code-generation form and metadata/history without error; it did not generate
+any production codes. Public homepage/login, readiness, HSTS and plaintext HTTP
+rejection passed. Database/proxy containers and credential files were unchanged;
+no administrator reset, real email or vendor push was performed.
 
 ## Contract
 
 - The MIT Go/PostgreSQL core serves both hosted and independent selfhost modes.
-- Hosted entitlement is account-wide service days, redeemed on desktop/web only.
+- Hosted entitlement is account-wide service days, redeemed through client bearer
+  authentication, not administrator website cookies. Desktop redemption is
+  implemented; the mobile app currently has no purchase/redemption UI.
 - An exact canonical HTTPS origin and account ID scope all stored credentials.
 - Control uses Noise KK; preview uses separate keys and single-message Noise K.
 - A five-minute QR, key confirmation, encrypted proof, and explicit local

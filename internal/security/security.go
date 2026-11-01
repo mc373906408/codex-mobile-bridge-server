@@ -53,6 +53,15 @@ func Password(value string) (string, error) {
 	if len(value) < 12 || len(value) > 256 {
 		return "", errors.New("password must contain 12 to 256 bytes")
 	}
+	return hashPassword(value)
+}
+
+// This hash is only for the restricted, one-time administrator setup flow.
+func DefaultAdministratorPassword() (string, error) {
+	return hashPassword("admin")
+}
+
+func hashPassword(value string) (string, error) {
 	salt, err := Random(16)
 	if err != nil {
 		return "", err

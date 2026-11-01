@@ -1,9 +1,9 @@
 # HTTPS deployment and recovery runbook
 
-These are operator instructions for a future, explicitly authorized deployment.
-No service, production credential, DNS record, real mail or vendor push was used
-to verify this runbook. Local Go/PostgreSQL tests and temporary-directory helper
-tests are recorded in [implementation status](implementation-status.md).
+These are operator instructions for an explicitly authorized deployment.
+Code and isolated Go/PostgreSQL tests do not establish SMTP delivery or real-device
+push acceptance. Actual checks and remaining release gates are recorded in
+[implementation status](implementation-status.md).
 
 Commands in this document target **Linux with Docker Engine and Compose v2**.
 Docker, Caddy/ACME, filesystem mounts and recovery still require a rehearsal on
@@ -18,8 +18,11 @@ public certificate/deployment target. The origin has no path, user information,
 query, fragment or redundant `:443`. Origin changes create a different client
 credential scope; redirects must not carry account/device credentials elsewhere.
 
-Only Caddy publishes ports: TCP 80 for HTTPS redirection/certificate validation,
-TCP 443 for HTTPS/WebSocket relay, and optional UDP 443 for HTTP/3. Do not publish
+Only Caddy publishes ports: TCP 443 for HTTPS/WebSocket relay, and optional UDP
+443 for HTTP/3. HTTP port 80 is not published and HTTP redirects are disabled.
+Automatic certificates use TLS-ALPN-01 on 443 (HTTP-01 is disabled); installations
+using a different public HTTPS port must privately provision a DNS-validated
+certificate or an appropriate DNS ACME issuer. Do not publish
 PostgreSQL or the backend's plaintext port. The Compose database network is
 internal. Other local container/host administrators remain trusted operators.
 
@@ -35,7 +38,13 @@ The helper creates `.env` and five `.local/secrets/` files, with no secret value
 on stdout. It refuses existing targets and symlink escapes; it is not a rotation,
 upgrade or recovery tool. It creates separate PostgreSQL administrator and
 application passwords, the application's database URL, an encryption key and
-the initial administrator password. The `bridge` database role owns its database
+the setup-only administrator password. A fresh
+default installation uses `admin/admin`; those credentials cannot create normal
+sessions or authorize management, devices or relay access before a password
+change. There is no manual initialization code. Public default credentials can
+be claimed by another visitor, so log in and change the password immediately
+after deployment, or use the initializer's custom administrator username option
+to generate a random initial password. The `bridge` database role owns its database
 but is not a superuser and cannot create databases or roles.
 
 The secret directory is `0700`; individual bind-mounted files are `0444` so the
@@ -52,6 +61,10 @@ The default edge subnet is `172.30.74.0/28` and Caddy's fixed address is
 exact Caddy `/32` is trusted for client-IP forwarding; do not replace it with a
 wildcard or a broad private-network CIDR. Preserve the public Host header and use
 Caddy's normal forwarded-header handling, not client-supplied identity headers.
+Outside explicit loopback development, the backend rejects plaintext account,
+web and relay requests unless the configured trusted proxy confirms HTTPS with
+`X-Forwarded-Proto: https`. The backend's internal HTTP socket is never published;
+only local, credential-free liveness/readiness probes may use plaintext HTTP.
 
 ## 2. Hosted and push opt-ins
 
@@ -59,10 +72,16 @@ Selfhost is independent: username login, administrator-created accounts and no
 hosted service-day check. The minimal installation does not contact a hosted
 licensing server. If SMTP is absent, do not promise email password recovery.
 
-For hosted mode, initialize with a canonical administrator email instead:
+Both modes use the same independent administrator username login. Administrators
+do not require an email address. The website is administrator-only; ordinary
+users use client APIs. Hosted ordinary users still register with email, verify
+ownership and pass server-controlled service-day checks. Email verification and
+reset links remain public security pages, not console login authority.
+
+For a fresh hosted installation:
 
 ```sh
-python3 -B scripts/init_deployment.py --domain relay.example.com --mode hosted --admin-login admin@example.com
+python3 -B scripts/init_deployment.py --domain relay.example.com --mode hosted
 ```
 
 Before starting hosted mode, privately provision `.local/secrets/smtp_password`
@@ -113,12 +132,57 @@ waits for that healthcheck and obtains HTTPS certificates for the configured
 hostname. External `/readyz`, certificate/hostname validity and WebSocket upgrade
 must also be tested from an authorized client; local readiness does not test TLS.
 
-Read the initial administrator password only through an approved local secret
-workflow, then log in on the configured HTTPS origin. Bootstrap settings do not
-reset an existing administrator. Use authenticated administration for account
+Open `/admin` on the configured HTTPS origin. For a new default installation,
+enter `admin/admin` to go directly to the mandatory password-change page. No
+manual initialization code or email address is required. The resulting ten-minute setup cookie or
+API setup token can only change administrator credentials, not access account or
+management APIs. Set a different password (12 to 256 bytes); optionally change
+the username, then sign in again. All setup sessions are invalidated on success.
+The page defaults to Chinese; `?lang=en` selects English and stores a language
+preference. Ordinary users cannot create or reuse website sessions, including
+pre-upgrade website cookies; their client bearer login remains independent.
+
+The public `/` homepage and authenticated `/admin` console use separate layouts.
+The console uses the available screen width, a dedicated navigation rail and
+responsive data tables; it is not a small panel inside the homepage. Runtime
+metrics describe server-wide live connections. The device and session sections
+are explicitly scoped to the signed-in administrator, not every user's devices.
+User and audit tables show the latest 200 records, with local user filtering.
+Hosted administrators can generate and manage codes in a separate console
+section. Each batch supports 1-100 codes and 1-3650 service days per code. The
+server returns plaintext only at generation; save the private CSV before leaving
+the page or generating another batch. If automatic download is blocked, use the
+visible download link for that batch. The latest-200 code list contains metadata
+only; used/revoked codes cannot be exported again. Unused codes can be revoked,
+and client redemption history is read-only. After an uncertain network failure,
+inspect the metadata list before resubmitting to avoid unintentionally generating
+another batch. The console still has no personal-entitlement or redemption form.
+Desktop client redemption remains available through bearer-authenticated
+`/v1/account/redeem`; website cookies are rejected. Privileged code
+generation/revocation APIs are not available to ordinary clients. Selfhost has no
+official service-day code issuance. No mobile purchase/redemption UI is introduced
+by this update.
+
+Bootstrap settings do not reset an existing administrator or create another one
+when the login changes. Existing email-named administrators remain compatible.
+Existing initialization-code files and variables are no longer required or read.
+Do not rerun the initializer over existing secrets when upgrading.
+Use authenticated administration for account
 creation, reset/disable, device revocation and hosted code/audit management; do
 not use QR/account membership as desktop approval. Do not expose credentials in
 URLs, command arguments, screenshots or shared logs.
+
+An operator who explicitly needs to reset the sole administrator can run:
+
+```sh
+docker compose run --rm --no-deps server reset-admin
+```
+
+Use all overlays belonging to that installation. This local-only command restores
+`admin/admin` in setup-only state, and revokes old login sessions and mail tokens.
+Account ID, entitlement, device rows, approved bindings and public keys are
+retained. Clients must authenticate and reenroll with their existing local keys.
+The command refuses zero or multiple administrators; there is no HTTP reset route.
 
 Plan upgrades with a verified backup. Record source revision and image digests,
 build the intended version, and check migration compatibility in an isolated

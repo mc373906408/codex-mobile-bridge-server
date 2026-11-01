@@ -60,6 +60,9 @@ func secret(name string) (string, error) {
 			return "", errors.New("cannot read " + name + "_FILE")
 		}
 		value = strings.TrimSpace(string(bytes))
+		if value == "" {
+			return "", errors.New(name + "_FILE must not be empty")
+		}
 	}
 	return value, nil
 }
@@ -97,6 +100,9 @@ func Load() (Config, error) {
 		if err != nil {
 			return c, err
 		}
+	}
+	if c.AdminLogin == "" && c.AdminPassword == "" && os.Getenv("BRIDGE_ADMIN_PASSWORD_FILE") == "" {
+		c.AdminLogin, c.AdminPassword = "admin", "admin"
 	}
 	key, err := secret("BRIDGE_DATA_KEY")
 	if err != nil {
@@ -153,7 +159,8 @@ func (c Config) Validate() error {
 	if (c.AdminLogin == "") != (c.AdminPassword == "") {
 		return errors.New("bootstrap admin login and password must be configured together")
 	}
-	if c.AdminPassword != "" && (len(c.AdminPassword) < 12 || len(c.AdminPassword) > 256) {
+	defaultAdministrator := c.AdminLogin == "admin" && c.AdminPassword == "admin"
+	if c.AdminPassword != "" && !defaultAdministrator && (len(c.AdminPassword) < 12 || len(c.AdminPassword) > 256) {
 		return errors.New("bootstrap admin password must contain 12 to 256 bytes")
 	}
 	if c.Paid() && !c.MailEnabled() {

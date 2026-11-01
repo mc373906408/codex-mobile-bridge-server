@@ -33,7 +33,7 @@ services:
       BRIDGE_MODE: ${BRIDGE_MODE:-selfhost}
       BRIDGE_LISTEN: 0.0.0.0:8080
       BRIDGE_ORIGIN: https://${BRIDGE_DOMAIN:?Set BRIDGE_DOMAIN in .env}
-      BRIDGE_ADMIN_LOGIN: ${BRIDGE_ADMIN_LOGIN:?Set the bootstrap administrator login}
+      BRIDGE_ADMIN_LOGIN: ${BRIDGE_ADMIN_LOGIN:-admin}
       BRIDGE_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
       DATABASE_URL_FILE: /run/secrets/database_url
       BRIDGE_DATA_KEY_FILE: /run/secrets/data_key
@@ -72,7 +72,6 @@ services:
     environment:
       BRIDGE_DOMAIN: ${BRIDGE_DOMAIN:?Set BRIDGE_DOMAIN in .env}
     ports:
-      - '80:80'
       - '443:443'
       - '443:443/udp'
     volumes:

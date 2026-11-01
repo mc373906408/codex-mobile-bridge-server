@@ -9,6 +9,7 @@ import (
 // and audit history are intentionally not pruned by the runtime.
 func (s *Store) Cleanup(ctx context.Context) error {
 	statements := []string{
+		`DELETE FROM administrator_setup_sessions WHERE digest IN (SELECT digest FROM administrator_setup_sessions WHERE expires_at<now() LIMIT 1000)`,
 		`DELETE FROM push_jobs WHERE id IN (SELECT id FROM push_jobs WHERE expires_at<now()-interval '1 day' LIMIT 1000)`,
 		`DELETE FROM push_acks WHERE ctid IN (SELECT ctid FROM push_acks WHERE expires_at<now() LIMIT 1000)`,
 		`DELETE FROM mail_outbox WHERE id IN (SELECT id FROM mail_outbox WHERE expires_at<now()-interval '1 day' LIMIT 1000)`,

@@ -12,13 +12,14 @@ import (
 )
 
 type Account struct {
-	ID            string    `json:"id"`
-	Login         string    `json:"login"`
-	Verified      bool      `json:"verified"`
-	Administrator bool      `json:"administrator"`
-	Disabled      bool      `json:"disabled"`
-	CreatedAt     time.Time `json:"created_at"`
-	PasswordHash  string    `json:"-"`
+	ID                        string    `json:"id"`
+	Login                     string    `json:"login"`
+	Verified                  bool      `json:"verified"`
+	Administrator             bool      `json:"administrator"`
+	Disabled                  bool      `json:"disabled"`
+	CredentialsChangeRequired bool      `json:"credentials_change_required"`
+	CreatedAt                 time.Time `json:"created_at"`
+	PasswordHash              string    `json:"-"`
 }
 
 type Principal struct {
@@ -44,11 +45,11 @@ type MailMessage struct {
 
 func scanAccount(row pgx.Row) (Account, error) {
 	var a Account
-	err := row.Scan(&a.ID, &a.Login, &a.PasswordHash, &a.Verified, &a.Administrator, &a.Disabled, &a.CreatedAt)
+	err := row.Scan(&a.ID, &a.Login, &a.PasswordHash, &a.Verified, &a.Administrator, &a.Disabled, &a.CreatedAt, &a.CredentialsChangeRequired)
 	return a, err
 }
 
-const accountColumns = "id, login, password_hash, verified, administrator, disabled, created_at"
+const accountColumns = "id, login, password_hash, verified, administrator, disabled, created_at, credentials_change_required"
 
 func (s *Store) AccountByLogin(ctx context.Context, login string) (Account, error) {
 	return scanAccount(s.Pool.QueryRow(ctx, "SELECT "+accountColumns+" FROM accounts WHERE login=$1", login))
@@ -58,7 +59,13 @@ func (s *Store) Bootstrap(ctx context.Context, login, password string) error {
 	if login == "" {
 		return nil
 	}
-	hash, err := security.Password(password)
+	var hash string
+	var err error
+	if login == "admin" && password == "admin" {
+		hash, err = security.DefaultAdministratorPassword()
+	} else {
+		hash, err = security.Password(password)
+	}
 	if err != nil {
 		return err
 	}
@@ -70,18 +77,15 @@ func (s *Store) Bootstrap(ctx context.Context, login, password string) error {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(607843093)"); err != nil {
 			return err
 		}
-		var admin bool
-		err := tx.QueryRow(ctx, "SELECT administrator FROM accounts WHERE login=$1", login).Scan(&admin)
-		if err == nil {
-			if !admin {
-				return errors.New("bootstrap login already belongs to a non-administrator")
-			}
-			return nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM accounts WHERE administrator)").Scan(&exists); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, "INSERT INTO accounts(id,login,password_hash,verified,administrator) VALUES($1,$2,$3,true,true)", id, login, hash); err != nil {
+		// Changing the login or deployment settings must never recreate default access.
+		if exists {
+			return nil
+		}
+		if _, err = tx.Exec(ctx, "INSERT INTO accounts(id,login,password_hash,verified,administrator,credentials_change_required) VALUES($1,$2,$3,true,true,true)", id, login, hash); err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, "INSERT INTO entitlements(account_id) VALUES($1)", id)
@@ -166,7 +170,7 @@ func (s *Store) RequestMail(ctx context.Context, login, purpose string, c config
 		if err != nil {
 			return err
 		}
-		if a.Disabled || (purpose == "verify" && a.Verified) {
+		if a.Disabled || a.CredentialsChangeRequired || (purpose == "verify" && a.Verified) {
 			return nil
 		}
 		return s.queueMail(ctx, tx, a, purpose, c)
@@ -215,6 +219,9 @@ func (s *Store) ConsumeMailToken(ctx context.Context, token, purpose, passwordHa
 }
 
 func (s *Store) NewSession(ctx context.Context, a Account, c config.Config, web bool) (Tokens, error) {
+	if a.CredentialsChangeRequired || (web && !a.Administrator) {
+		return Tokens{}, ErrDenied
+	}
 	t := Tokens{ExpiresIn: int64(c.AccessTTL.Seconds()), Account: a}
 	id, err := security.ID()
 	if err != nil {
@@ -238,7 +245,7 @@ func (s *Store) NewSession(ctx context.Context, a Account, c config.Config, web 
 	}
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var enabled bool
-		if err := tx.QueryRow(ctx, "SELECT verified AND NOT disabled AND password_hash=$2 FROM accounts WHERE id=$1 FOR UPDATE", a.ID, a.PasswordHash).Scan(&enabled); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT verified AND NOT disabled AND NOT credentials_change_required AND password_hash=$2 AND (NOT $3::boolean OR administrator) FROM accounts WHERE id=$1 FOR UPDATE", a.ID, a.PasswordHash, web).Scan(&enabled); err != nil {
 			return err
 		}
 		if !enabled {
@@ -267,7 +274,8 @@ func (s *Store) Authenticate(ctx context.Context, token string, web bool) (Princ
 	}
 	err := s.Pool.QueryRow(ctx, `SELECT a.id,a.login,a.password_hash,a.verified,a.administrator,a.disabled,a.created_at,s.id,s.csrf
 		FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.`+column+`=$1 AND s.`+expiry+`>now()
-		AND s.revoked_at IS NULL AND s.refresh_expires_at>now() AND a.verified AND NOT a.disabled`, security.Digest(token)).Scan(
+		AND s.revoked_at IS NULL AND s.refresh_expires_at>now() AND a.verified AND NOT a.disabled AND NOT a.credentials_change_required
+		AND (NOT $2::boolean OR a.administrator)`, security.Digest(token), web).Scan(
 		&p.ID, &p.Login, &p.PasswordHash, &p.Verified, &p.Administrator, &p.Disabled, &p.CreatedAt, &p.SessionID, &p.CSRF)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrDenied
@@ -300,7 +308,7 @@ func (s *Store) Refresh(ctx context.Context, token string, c config.Config) (Tok
 		if err != nil {
 			return err
 		}
-		if t.Account.Disabled || !t.Account.Verified {
+		if t.Account.Disabled || !t.Account.Verified || t.Account.CredentialsChangeRequired {
 			denied = true
 			return nil
 		}

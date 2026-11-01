@@ -70,3 +70,66 @@ func TestClientIPTrustsOnlyTheExplicitProxyChain(t *testing.T) {
 		}
 	}
 }
+
+func TestProductionAcceptsOnlyHTTPSOrExplicitlyTrustedTLSProxy(t *testing.T) {
+	c := testutil.Config()
+	c.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("172.30.74.2/32")}
+	a, err := New(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.Hub.Shutdown)
+	for _, test := range []struct {
+		name, peer, proto string
+		status            int
+	}{
+		{"plain public HTTP", "198.51.100.20:1234", "", 400},
+		{"forged TLS forwarding", "198.51.100.20:1234", "https", 400},
+		{"trusted proxy over HTTP", "172.30.74.2:1234", "http", 400},
+		{"ambiguous forwarding", "172.30.74.2:1234", "https,http", 400},
+		{"missing forwarding", "172.30.74.2:1234", "", 400},
+		{"trusted TLS termination", "172.30.74.2:1234", "https", 200},
+		{"loopback is not account authority", "127.0.0.1:1234", "", 400},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "http://relay.example.test/v1/capabilities", nil)
+			r.RemoteAddr = test.peer
+			r.Header.Set("X-Forwarded-Proto", test.proto)
+			w := httptest.NewRecorder()
+			a.ServeHTTP(w, r)
+			code := ""
+			if test.status == 400 {
+				code = "https_required"
+			}
+			expectStatus(t, w, test.status, code)
+		})
+	}
+	r := httptest.NewRequest("GET", "https://relay.example.test/v1/capabilities", nil)
+	r.RemoteAddr = "198.51.100.20:1234"
+	w := httptest.NewRecorder()
+	a.ServeHTTP(w, r)
+	expectStatus(t, w, 200, "")
+	r = httptest.NewRequest("GET", "http://relay.example.test/healthz", nil)
+	r.RemoteAddr = "127.0.0.1:1234"
+	w = httptest.NewRecorder()
+	a.ServeHTTP(w, r)
+	expectStatus(t, w, 200, "")
+	r = httptest.NewRequest("GET", "http://relay.example.test/healthz", nil)
+	r.RemoteAddr = "198.51.100.20:1234"
+	w = httptest.NewRecorder()
+	a.ServeHTTP(w, r)
+	expectStatus(t, w, 400, "https_required")
+	r = httptest.NewRequest("GET", "http://relay.example.test/v1/capabilities", nil)
+	r.RemoteAddr = "172.30.74.2:1234"
+	r.Header.Add("X-Forwarded-Proto", "https")
+	r.Header.Add("X-Forwarded-Proto", "http")
+	w = httptest.NewRecorder()
+	a.ServeHTTP(w, r)
+	expectStatus(t, w, 400, "https_required")
+	r = httptest.NewRequest("GET", "http://relay.example.test/healthz", nil)
+	r.RemoteAddr = "127.0.0.1:1234"
+	r.Header.Set("Authorization", "Bearer test-only-not-a-real-token")
+	w = httptest.NewRecorder()
+	a.ServeHTTP(w, r)
+	expectStatus(t, w, 400, "https_required")
+}

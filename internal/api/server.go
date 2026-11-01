@@ -60,6 +60,10 @@ func (a *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 	if !a.Config.Development {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		if !a.secureRequest(r) {
+			a.respondError(w, failure{400, "https_required"})
+			return
+		}
 	}
 	if strings.HasPrefix(r.URL.Path, "/v1/") && r.URL.RawQuery != "" {
 		a.respondError(w, bad("query_not_allowed"))
@@ -204,6 +208,37 @@ func (a *Server) limit(r *http.Request, action, identity string, count int, wind
 	return nil
 }
 
+func (a *Server) trustedProxy(ip netip.Addr) bool {
+	for _, prefix := range a.Config.TrustedProxies {
+		if prefix.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Server) secureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	peer, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	peer = peer.Unmap()
+	// Container readiness probes have no credentials and never expose account APIs.
+	if peer.IsLoopback() && r.Method == http.MethodGet && r.URL.RawQuery == "" && r.Header.Get("Authorization") == "" && r.Header.Get("Cookie") == "" &&
+		(r.URL.Path == "/healthz" || r.URL.Path == "/readyz") {
+		return true
+	}
+	proto := r.Header.Values("X-Forwarded-Proto")
+	return a.trustedProxy(peer) && len(proto) == 1 && proto[0] == "https"
+}
+
 func (a *Server) clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -214,15 +249,7 @@ func (a *Server) clientIP(r *http.Request) string {
 		return "unknown"
 	}
 	peer = peer.Unmap()
-	trusted := func(ip netip.Addr) bool {
-		for _, p := range a.Config.TrustedProxies {
-			if p.Contains(ip) {
-				return true
-			}
-		}
-		return false
-	}
-	if !trusted(peer) {
+	if !a.trustedProxy(peer) {
 		return peer.String()
 	}
 	chain := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
@@ -235,7 +262,7 @@ func (a *Server) clientIP(r *http.Request) string {
 			return peer.String()
 		}
 		peer = next.Unmap()
-		if !trusted(peer) {
+		if !a.trustedProxy(peer) {
 			break
 		}
 	}
@@ -260,6 +287,15 @@ func NormalizeLogin(value string, hosted bool) (string, error) {
 		return "", bad("invalid_username")
 	}
 	return value, nil
+}
+
+func NormalizeAdministratorLogin(value string) (string, error) {
+	login, err := NormalizeLogin(value, false)
+	if err == nil {
+		return login, nil
+	}
+	// Preserve existing email-named administrators during upgrades.
+	return NormalizeLogin(value, true)
 }
 func validID(value string) error {
 	_, err := security.IDBytes(value)
@@ -286,6 +322,7 @@ func (a *Server) routes() {
 	a.handle("GET /v1/capabilities", a.capabilities)
 	a.handle("POST /v1/auth/register", a.register)
 	a.handle("POST /v1/auth/login", a.login)
+	a.handle("POST /v1/admin/auth/setup", a.finishAdministratorSetup)
 	a.handle("POST /v1/auth/refresh", a.refresh)
 	a.handle("POST /v1/auth/logout", a.logout)
 	a.handle("POST /v1/auth/verification", a.requestVerification)
@@ -309,6 +346,9 @@ func (a *Server) capabilities(w http.ResponseWriter, r *http.Request) error {
 		login = "email"
 	}
 	writeJSON(w, 200, map[string]any{"mode": a.Config.Mode, "login": login, "registration": a.Config.Paid(), "redemption": a.Config.Paid(),
+		"redemption_web": false, "web_home": "/", "web_console": "/admin",
+		"administrator_login": "username", "administrator_initial_setup": true, "web_languages": []string{"zh-CN", "en"},
+		"web_access":     "administrator_only",
 		"password_reset": a.Config.MailEnabled(), "entitlement_required": a.Config.Paid(), "relay_protocols": []int{1},
 		"control_noise": "Noise_KK_25519_ChaChaPoly_BLAKE2s", "preview_noise": "Noise_K_25519_ChaChaPoly_BLAKE2s",
 		"push": map[string]any{"umeng": a.Config.UmengEnabled(), "apns": a.Config.APNSEnabled(), "umeng_app_id": a.Config.Umeng.AppKey, "apns_app_id": a.Config.APNS.Topic}})

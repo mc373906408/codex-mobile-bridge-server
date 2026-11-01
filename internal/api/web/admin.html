@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="{{.Language}}">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf" content="{{.CSRF}}"><title>{{.Text.dashboard_title}}</title>
+  <link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
+</head>
+<body class="admin-page" data-admin="true" data-account-id="{{.Account.ID}}" data-mode="{{.Mode}}" data-load-error="{{.Text.network_error}}">
+<a class="skip-link" href="#admin-content">{{.Text.skip_content}}</a>
+<header class="admin-header">
+  <a class="wordmark" href="/admin">BRIDGE<span>/ ADMIN</span></a>
+  <div class="header-tools">
+    <span class="badge">{{if .Hosted}}{{.Text.hosting_official}}{{else}}{{.Text.hosting_selfhost}}{{end}}</span>
+    <nav class="language-nav" aria-label="{{.Text.language_label}}">
+      <a href="?lang=zh-CN" lang="zh-CN" {{if eq .Language "zh-CN"}}aria-current="true"{{end}}>&#20013;&#25991;</a>
+      <a href="?lang=en" lang="en" {{if eq .Language "en"}}aria-current="true"{{end}}>English</a>
+    </nav>
+    <a class="back-home" href="/">{{.Text.back_home}} <span aria-hidden="true">&nearr;</span></a>
+    <button id="logout" class="secondary">{{.Text.sign_out}}</button>
+  </div>
+</header>
+<div class="admin-shell">
+  <aside class="admin-rail">
+    <div class="rail-heading"><p class="eyebrow">{{.Text.admin_account}}</p><strong>{{.Account.Login}}</strong></div>
+    <nav class="admin-nav" aria-label="{{.Text.admin_navigation}}">
+      <a href="#overview" aria-current="location"><span aria-hidden="true">01</span>{{.Text.overview_heading}}</a>
+      <a href="#user-management"><span aria-hidden="true">02</span>{{.Text.users_heading}}</a>
+      {{if .Hosted}}<a href="#code-management"><span aria-hidden="true">03</span>{{.Text.codes_heading}}</a>{{end}}
+      <a href="#device-management"><span aria-hidden="true">{{if .Hosted}}04{{else}}03{{end}}</span>{{.Text.admin_devices_heading}}</a>
+      <a href="#session-management"><span aria-hidden="true">{{if .Hosted}}05{{else}}04{{end}}</span>{{.Text.admin_sessions_heading}}</a>
+      <a href="#audit-management"><span aria-hidden="true">{{if .Hosted}}06{{else}}05{{end}}</span>{{.Text.audit_heading}}</a>
+    </nav>
+    <p class="rail-note">{{.Text.admin_boundary_help}}</p>
+  </aside>
+  <main id="admin-content" class="admin-content" tabindex="-1">
+    <div id="message" role="status" aria-live="polite"></div>
+    <section id="overview" class="admin-section" aria-labelledby="overview-title">
+      <div class="section-heading overview-heading">
+        <div><p class="eyebrow">{{.Text.operations_eyebrow}}</p><h1 id="overview-title">{{.Text.overview_heading}}</h1><p>{{.Text.overview_help}}</p></div>
+        <div class="refresh-tools"><button id="refresh" class="secondary">{{.Text.refresh}}</button><span id="last-updated" class="fine">{{.Text.not_updated}}</span></div>
+      </div>
+      <div class="metrics" aria-label="{{.Text.runtime_metrics}}">
+        <article class="metric"><h2>{{.Text.online_gateways}}</h2><strong id="metric-gateways">&mdash;</strong><p>{{.Text.metric_gateways_help}}</p></article>
+        <article class="metric"><h2>{{.Text.online_mobiles}}</h2><strong id="metric-mobiles">&mdash;</strong><p>{{.Text.metric_mobiles_help}}</p></article>
+        <article class="metric"><h2>{{.Text.queued_pushes}}</h2><strong id="metric-pushes">&mdash;</strong><p>{{.Text.metric_pushes_help}}</p></article>
+      </div>
+      <p id="runtime" class="runtime-note">{{.Text.loading}}</p>
+    </section>
+    <section id="user-management" class="admin-section panel" aria-labelledby="users-title">
+      <div class="section-heading"><div><p class="eyebrow">02 / {{.Text.accounts_eyebrow}}</p><h2 id="users-title">{{.Text.users_heading}}</h2><p>{{if .Hosted}}{{.Text.hosted_users_help}}{{else}}{{.Text.selfhost_users_help}}{{end}}</p></div></div>
+      {{if not .Hosted}}<details class="create-user"><summary>{{.Text.create_user_action}}</summary>
+        <form id="create-user" method="post" action="/v1/admin/users">
+          <label>{{.Text.local_username}}<input name="login" required pattern="[a-z0-9][a-z0-9_.-]{2,63}" minlength="3" maxlength="64" autocomplete="off"></label>
+          <label>{{.Text.initial_password}}<input name="password" type="password" minlength="12" maxlength="256" required autocomplete="new-password"></label>
+          <button>{{.Text.create_user_action}}</button>
+        </form>
+      </details>{{end}}
+      <div class="table-tools"><label for="user-filter" class="search-label">{{.Text.search_users}}<input id="user-filter" type="search" maxlength="254" placeholder="{{.Text.search_users_placeholder}}"></label><span id="user-count" class="fine">{{.Text.latest_users_help}}</span></div>
+      <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.users_heading}}</caption>
+        <thead><tr><th scope="col">{{.Text.account_column}}</th><th scope="col">{{.Text.role_column}}</th><th scope="col">{{.Text.status_column}}</th>{{if .Hosted}}<th scope="col">{{.Text.email_column}}</th><th scope="col">{{.Text.expiry_column}}</th>{{end}}<th scope="col">{{.Text.actions_column}}</th></tr></thead>
+        <tbody id="users"><tr><td colspan="{{if .Hosted}}6{{else}}4{{end}}">{{.Text.loading}}</td></tr></tbody>
+      </table></div>
+    </section>
+    {{if .Hosted}}<section id="code-management" class="admin-section panel" aria-labelledby="codes-title">
+      <div class="section-heading"><div><p class="eyebrow">{{.Text.codes_eyebrow}}</p><h2 id="codes-title">{{.Text.codes_heading}}</h2><p>{{.Text.codes_admin_help}}</p></div></div>
+      <form id="codes" class="code-generation" method="post" action="/v1/admin/codes" aria-describedby="code-export-help">
+        <label>{{.Text.code_days}}<input name="days" type="number" min="1" max="3650" step="1" value="30" required></label>
+        <label>{{.Text.code_count}}<input name="count" type="number" min="1" max="100" step="1" value="1" required></label>
+        <button>{{.Text.generate_codes_action}} <span aria-hidden="true">&darr;</span></button>
+      </form>
+      <p id="code-export-help" class="fine">{{.Text.code_export_help}}</p>
+      <div id="code-export" class="code-export" hidden>
+        <div><strong id="code-export-summary"></strong><p class="fine">{{.Text.code_download_help}}</p></div>
+        <a id="code-download" class="button-link" download>{{.Text.download_code_batch}} <span aria-hidden="true">&darr;</span></a>
+      </div>
+      <p class="fine">{{.Text.latest_codes_help}}</p>
+      <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.codes_heading}}</caption><thead><tr><th scope="col">{{.Text.code_id_column}}</th><th scope="col">{{.Text.code_days}}</th><th scope="col">{{.Text.status_column}}</th><th scope="col">{{.Text.created_column}}</th><th scope="col">{{.Text.actions_column}}</th></tr></thead><tbody id="code-list"><tr><td colspan="5">{{.Text.loading}}</td></tr></tbody></table></div>
+      <details class="redemption-history"><summary>{{.Text.redemptions_heading}}</summary><p class="fine">{{.Text.redemptions_admin_help}}</p>
+        <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.redemptions_heading}}</caption><thead><tr><th scope="col">{{.Text.account_column}}</th><th scope="col">{{.Text.code_days}}</th><th scope="col">{{.Text.time_column}}</th><th scope="col">{{.Text.expiry_column}}</th></tr></thead><tbody id="redemptions"><tr><td colspan="4">{{.Text.loading}}</td></tr></tbody></table></div>
+      </details>
+    </section>{{end}}
+    <section id="device-management" class="admin-section panel" aria-labelledby="devices-title">
+      <div class="section-heading"><div><p class="eyebrow">{{if .Hosted}}04{{else}}03{{end}} / {{.Text.connections_eyebrow}}</p><h2 id="devices-title">{{.Text.admin_devices_heading}}</h2><p>{{.Text.admin_devices_help}}</p></div></div>
+      <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.admin_devices_heading}}</caption><thead><tr><th scope="col">{{.Text.device_column}}</th><th scope="col">{{.Text.type_column}}</th><th scope="col">{{.Text.status_column}}</th><th scope="col">{{.Text.actions_column}}</th></tr></thead><tbody id="devices"><tr><td colspan="4">{{.Text.loading}}</td></tr></tbody></table></div>
+    </section>
+    <section id="session-management" class="admin-section panel" aria-labelledby="sessions-title">
+      <div class="section-heading"><div><p class="eyebrow">{{if .Hosted}}05{{else}}04{{end}} / {{.Text.security_eyebrow}}</p><h2 id="sessions-title">{{.Text.admin_sessions_heading}}</h2><p>{{.Text.admin_sessions_help}}</p></div></div>
+      <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.admin_sessions_heading}}</caption><thead><tr><th scope="col">{{.Text.session_column}}</th><th scope="col">{{.Text.status_column}}</th><th scope="col">{{.Text.expiry_column}}</th><th scope="col">{{.Text.actions_column}}</th></tr></thead><tbody id="sessions"><tr><td colspan="4">{{.Text.loading}}</td></tr></tbody></table></div>
+    </section>
+    <section id="audit-management" class="admin-section panel" aria-labelledby="audit-title">
+      <div class="section-heading"><div><p class="eyebrow">{{if .Hosted}}06{{else}}05{{end}} / {{.Text.audit_eyebrow}}</p><h2 id="audit-title">{{.Text.audit_heading}}</h2><p>{{.Text.audit_help}}</p></div></div>
+      <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.audit_heading}}</caption><thead><tr><th scope="col">{{.Text.time_column}}</th><th scope="col">{{.Text.event_column}}</th><th scope="col">{{.Text.actor_column}}</th><th scope="col">{{.Text.target_column}}</th></tr></thead><tbody id="audit"><tr><td colspan="4">{{.Text.loading}}</td></tr></tbody></table></div>
+    </section>
+    <footer class="admin-footer"><span>{{.Text.footer_control}}</span><span>{{.Text.footer_open_source}}</span></footer>
+  </main>
+</div>
+</body></html>

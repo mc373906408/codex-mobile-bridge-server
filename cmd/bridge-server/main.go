@@ -26,13 +26,13 @@ func main() {
 func run() error {
 	command := "serve"
 	if len(os.Args) > 2 {
-		return apiStartupError("usage: bridge-server [serve|migrate|healthcheck]")
+		return apiStartupError("usage: bridge-server [serve|migrate|healthcheck|reset-admin]")
 	}
 	if len(os.Args) == 2 {
 		command = os.Args[1]
 	}
-	if command != "serve" && command != "migrate" && command != "healthcheck" {
-		return apiStartupError("usage: bridge-server [serve|migrate|healthcheck]")
+	if command != "serve" && command != "migrate" && command != "healthcheck" && command != "reset-admin" {
+		return apiStartupError("usage: bridge-server [serve|migrate|healthcheck|reset-admin]")
 	}
 	c, err := config.Load()
 	if err != nil {
@@ -56,8 +56,15 @@ func run() error {
 		slog.Info("database migrations applied")
 		return nil
 	}
+	if command == "reset-admin" {
+		if err = s.ResetAdministrator(ctx); err != nil {
+			return apiStartupError("administrator reset failed; exactly one existing administrator is required")
+		}
+		slog.Info("administrator reset; default credentials only allow initial setup")
+		return nil
+	}
 	if c.AdminLogin != "" {
-		login, err := api.NormalizeLogin(c.AdminLogin, c.Paid())
+		login, err := api.NormalizeAdministratorLogin(c.AdminLogin)
 		if err != nil {
 			return apiStartupError("invalid bootstrap login")
 		}

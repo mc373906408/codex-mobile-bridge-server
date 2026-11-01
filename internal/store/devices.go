@@ -65,7 +65,7 @@ func (s *Store) Enroll(ctx context.Context, p Principal, role, id, name string, 
 	}
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var enabled bool
-		if err := tx.QueryRow(ctx, "SELECT verified AND NOT disabled FROM accounts WHERE id=$1 FOR UPDATE", p.ID).Scan(&enabled); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT verified AND NOT disabled AND NOT credentials_change_required FROM accounts WHERE id=$1 FOR UPDATE", p.ID).Scan(&enabled); err != nil {
 			return err
 		}
 		if !enabled {
@@ -118,7 +118,7 @@ func (s *Store) Device(ctx context.Context, token, role string) (Device, error) 
 	}
 	err := s.Pool.QueryRow(ctx, `SELECT d.id,d.account_id,d.session_id,`+name+`,d.control_public_key
 		FROM `+table+` d JOIN accounts a ON a.id=d.account_id JOIN sessions s ON s.id=d.session_id
-		WHERE d.token_digest=$1 AND d.revoked_at IS NULL AND a.verified AND NOT a.disabled
+		WHERE d.token_digest=$1 AND d.revoked_at IS NULL AND a.verified AND NOT a.disabled AND NOT a.credentials_change_required
 		AND s.revoked_at IS NULL AND s.refresh_expires_at>now()`, security.Digest(token)).Scan(&d.ID, &d.AccountID, &d.SessionID, &d.Name, &d.PublicKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrDenied
