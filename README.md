@@ -1,90 +1,59 @@
 # Codex Mobile Bridge Server
 
-The MIT-licensed Go/PostgreSQL core for an optional cloud relay between the
-desktop gateway and the native mobile companion. The same core supports an
-independent `selfhost` installation and a `hosted` service. Private operations,
-payment collection, signing credentials and production infrastructure are not
-part of this repository.
+为[桌面网关](https://github.com/mc373906408/codex-mobile-bridge)和[手机 App](https://github.com/mc373906408/codex-mobile-bridge-app)提供云端中转、账号管理和可选的推送服务。
+它不是聊天客户端；手机直接连接桌面网关时，不需要部署这个服务。
 
-This is a local implementation checkpoint, not a production rollout. See
-[implementation and verification status](docs/implementation-status.md) for the
-checks that actually ran and the remaining release gates.
+## 选择部署模式
 
-## Security and behavior
+| 模式 | 适合谁 | 账号方式 |
+| --- | --- | --- |
+| `selfhost` | 自己或小团队使用，推荐从这里开始 | 管理员创建用户名和密码，不检查托管服务天数 |
+| `hosted` | 向用户提供托管服务 | 邮箱注册和验证、服务天数兑换，需要配置 SMTP |
 
-- Cloud credentials belong to one exact canonical HTTPS origin and account.
-  A cloud login does not approve a phone on a desktop.
-- Pairing requires a short-lived QR, pinned keys, an encrypted proof and explicit
-  approval on the original local desktop. Noise KK protects control records;
-  single-message Noise K uses separate notification-preview keys.
-- The relay forwards opaque records bounded to 32 KiB. It does not queue offline
-  commands or automatically replay a write with an unknown result.
-- Direct and push delivery share a durable random notification ID per event and
-  binding. Native clients persist receipt state before ACK. A direct lease lasts
-  45 seconds, and notifications expire after one hour.
-- Private preview plaintext is bounded to 1 KiB, with a generic fallback. Full
-  APNs JSON is bounded to 4 KiB. Provider acceptance is not a device receipt.
-- Hosted entitlement is account-wide service days. Redemption is desktop/web
-  only; the mobile app has no purchase or redemption link. Selfhost has no hosted
-  entitlement requirement or hosted registration dependency.
+两种模式使用同一套服务。第三方推送默认关闭，配置好对应凭据和客户端后再启用。
 
-## Run and configure
+## 快速部署
 
-Use Go **1.27.3**, pinned in `.go-version` and the Docker builder, and PostgreSQL
-**18.1** for the supplied deployment and integration tests. `go.mod` retains its
-minimum supported language version. Development HTTP is permitted only for an
-explicit loopback selfhost configuration.
-
-Configuration requires `DATABASE_URL` and a standard-Base64 32-byte
-`BRIDGE_DATA_KEY`. Prefer their `_FILE` forms. Secret variables and their `_FILE`
-counterparts cannot be set together. Bootstrap administration requires both
-`BRIDGE_ADMIN_LOGIN` and `BRIDGE_ADMIN_PASSWORD` (or its `_FILE` form). Bootstrap
-does not replace an existing administrator's password.
-
-The executable accepts only these commands:
-
-| Command | Behavior |
-| --- | --- |
-| `bridge-server serve` (default) | Migrate, optionally bootstrap, then run HTTP, relay and workers |
-| `bridge-server migrate` | Apply idempotent migrations and exit; no notification/mail worker |
-| `bridge-server healthcheck` | Probe local `/readyz` with the exact public Host; no database migration |
-
-`GET /healthz` reports HTTP liveness. `GET /readyz` checks PostgreSQL with a
-bounded timeout. Both require the configured public Host. The container probe
-connects only locally, ignores environment proxies and refuses redirects.
-
-For HTTPS, secret initialization, hosted SMTP and backup/recovery, follow the
-[deployment runbook](docs/deployment.md). It documents operator actions; those
-actions have not been performed by this implementation checkpoint. Umeng and
-APNs are disabled unless their complete server configuration is provided.
-
-## Local verification
-
-**Use an isolated database only.** Integration tests create and drop their own
-schemas. Setting a production database URL is not safe.
+准备 Linux 服务器、Docker Engine、Compose v2 和 Python 3.11+，并将域名指向服务器。
+以下命令仅用于全新部署，请把 `relay.example.com` 换成自己的域名：
 
 ```sh
-export BRIDGE_TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55440/bridge_integration?sslmode=disable'
-go mod verify
-go mod tidy -diff
-go vet ./...
-go test -count=1 -v ./...
-python -B -m unittest discover -s scripts/tests -v
+git clone https://github.com/mc373906408/codex-mobile-bridge-server.git
+cd codex-mobile-bridge-server
+python3 -B scripts/init_deployment.py --domain relay.example.com --admin-login operator
+docker compose up -d --build --wait
 ```
 
-Database tests skip when the test URL is absent; that is not an integration pass.
-CI supplies PostgreSQL and rejects skipped integration tests. Linux CI also runs
-`go test -race`; a Windows run without a CGO-capable C compiler cannot establish
-race coverage.
+1. 打开 `https://relay.example.com/admin`，使用管理员账号 `operator` 登录。
+2. 初始密码由脚本随机生成，保存在 `.local/secrets/admin_password`，请在服务器本地读取并妥善保管。
+3. 自部署模式下，在后台创建用户，再让桌面端和 App 使用同一服务器地址登录、配对。
 
-Generate/check only the public, deterministic protocol fixtures:
+初始化脚本不会覆盖已有配置。升级或恢复时不要重新初始化，先按[部署文档](docs/deployment.md)备份。
+
+### 查看服务状态
 
 ```sh
-python -m pip install -r scripts/requirements-protocol.txt
-python -B scripts/protocol_vectors.py --check
+docker compose ps
+docker compose exec -T server /bridge-server healthcheck
 ```
 
-The fixed test keys must never be used in production. The matching fixture copies
-in the desktop and mobile repositories must remain byte-identical. The workflow
-also defines an ephemeral Docker migration/readiness smoke test; configuring a
-workflow is not evidence that it has run successfully.
+## 托管模式与兑换码
+
+使用 `hosted` 前，先配置 SMTP 邮件服务，再按[部署文档](docs/deployment.md#2-hosted-and-push-opt-ins)启用对应的 Compose 配置。
+管理员负责生成、导出和撤销兑换码；用户在桌面端兑换服务天数，不会因此获得设备配对权限。
+
+Android/iOS 云推送是可选功能，需要匹配的服务端凭据、客户端配置和用户同意；配置完成不代表通知已经送达。
+
+## 安全与版本提醒
+
+- 使用 HTTPS，不要将 PostgreSQL 或内部后端端口暴露到公网。
+- 建议通过 VPN 或 IP 白名单限制管理入口；只更换端口不能代替访问控制。
+- 不要上传 `.local/`、密码、推送密钥或数据库备份；备份数据库时也要单独保留 `data_key`。
+- 项目仍在开发。本文部署步骤兼容当前 GitHub 源码；独立后台界面和访问限制的最新改动尚未随源码提交。
+
+## 更多说明
+
+- [部署、邮件配置与备份恢复](docs/deployment.md)
+- [实现状态与验证范围](docs/implementation-status.md)
+
+许可证：[MIT](LICENSE)。
