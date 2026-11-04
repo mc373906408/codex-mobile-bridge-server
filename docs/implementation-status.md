@@ -25,6 +25,7 @@ This update retains the current database, accounts, passwords, devices, bindings
 credential mounts and HTTPS/database containers; it does not repeat the earlier
 fresh-database initialization. Public TLS/health checks pass and the desktop has
 reconnected. Phone/desktop reinstallation is unnecessary. See the
+[relay close decision](../.agents/notes/implemented/bug-fix/2026-11-04-relay-channel-close-isolation.md)
 for evidence and diagnostic limitations.
 
 ## Current-schema deployment on 2026-11-04
@@ -82,6 +83,7 @@ explicit desktop permission with independent encrypted proof.
 Push withdrawal checks the current phone and binding ownership independently of
 desktop access or entitlement. Closing and later restoring a connection does not
 restore withdrawn notification consent. The [current schema decision](../.agents/notes/implemented/simplification/2026-11-04-prerelease-account-and-binding-schema.md)
+and [push withdrawal fix](../.agents/notes/implemented/bug-fix/2026-11-04-push-withdrawal-independent-of-desktop-access.md)
 record the local verification. No deployment, data reset on an existing installation,
 real email or vendor push occurs in this source cleanup.
 

@@ -18,6 +18,7 @@ Status: implemented
 
 ## 记录归属
 
+[原初始化提案](../../rejected/bug-fix/2026-11-04-administrator-ownership-and-audit.md)因默认密码取舍被否，保留原理由并互链。全局[省察](../../implemented/architecture/2026-11-03-server-architecture-and-scope-audit.md)部分重叠，更新 F3–F5 处置；[当前 schema](../../implemented/simplification/2026-11-04-prerelease-account-and-binding-schema.md)和[推送撤回](../../implemented/bug-fix/2026-11-04-push-withdrawal-independent-of-desktop-access.md)继续持有各自边界，无其他重复提案。
 
 ## Alternatives considered
 

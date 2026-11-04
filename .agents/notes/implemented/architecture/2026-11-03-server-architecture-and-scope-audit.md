@@ -12,9 +12,11 @@ Status: implemented
 
 服务端采用 MIT 开源的 Go + PostgreSQL 单体，同一份代码支持 `hosted` 和 `selfhost`。PostgreSQL 保存账号、设备关系、服务天数和后台任务；WebSocket 中继的在线路由只保存在单个进程内。服务端不执行编码客户端会话，也不持有端到端加密的控制私钥或预览私钥。
 
+手机请求通道的自然关闭与共享桌面连接分离，已关闭通道的迟到记录仅在当前网关的有界身份记录内忽略，见[中继关闭隔离](../bug-fix/2026-11-04-relay-channel-close-isolation.md)。旧实现会把正常关闭回执误当非法路由并断开整个网关，该路径已修复。
 
 账号决定资源归属，托管服务天数决定云服务资格，桌面本地可信密钥和连接开关决定手机能否访问桌面，手机的独立同意决定通知资格。这四层相互关联，但不能互相替代。自动发现只建立关系，不自动建立桌面信任。
 
+**F1/F2 和 F4/F5 的代码缺口已修复，F3 按用户明确选择保留默认首登。** [推送撤回](../bug-fix/2026-11-04-push-withdrawal-independent-of-desktop-access.md)、[当前账号和绑定结构](../simplification/2026-11-04-prerelease-account-and-binding-schema.md)及[管理与审计](../bug-fix/2026-11-04-admin-management-and-audit.md)分别持有修复决定，原始复现证据保留。真实部署恢复、容量与设备验收仍有本文所述边界。
 
 ## 审查范围与已有记录
 

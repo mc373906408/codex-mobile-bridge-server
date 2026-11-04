@@ -23,6 +23,17 @@ type peer struct {
 	cancel  context.CancelFunc
 	window  time.Time
 	bytes   int
+	closed  map[string]closedRoute
+	retired []string
+	gateway *peer
+}
+
+const closedRouteLimit = 128
+const closedRouteTTL = time.Minute
+
+type closedRoute struct {
+	binding string
+	at      time.Time
 }
 
 type Hub struct {
@@ -143,7 +154,8 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 		}
 		h.gateways[d.ID] = p
 	} else {
-		if h.gateways[b.GatewayID] == nil {
+		p.gateway = h.gateways[b.GatewayID]
+		if p.gateway == nil {
 			h.mu.Unlock()
 			http.Error(w, "gateway offline", 503)
 			return
@@ -179,7 +191,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 	if d.Role == "mobile" {
 		h.mu.Lock()
 		gateway := h.gateways[b.GatewayID]
-		if gateway == nil || !h.enqueue(gateway, Frame{Kind: Open, BindingID: b.ID, ChannelID: channel, Payload: b.MobilePublicKey}) {
+		if gateway != p.gateway || !h.enqueue(gateway, Frame{Kind: Open, BindingID: b.ID, ChannelID: channel, Payload: b.MobilePublicKey}) {
 			h.mu.Unlock()
 			return
 		}
@@ -249,6 +261,9 @@ func splitProtocols(v string) []string {
 }
 
 func (h *Hub) enqueue(p *peer, f Frame) bool {
+	if p.ctx.Err() != nil {
+		return false
+	}
 	data, err := f.Encode()
 	if err != nil {
 		return false
@@ -265,23 +280,39 @@ func (h *Hub) enqueue(p *peer, f Frame) bool {
 func (h *Hub) forward(sender *peer, f Frame, data []byte) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if sender.ctx.Err() != nil {
+		return errors.New("peer disconnected")
+	}
 	var target *peer
 	if sender.device.Role == "gateway" {
 		target = h.mobiles[f.ChannelID]
-		if target == nil || target.binding.GatewayID != sender.device.ID || target.binding.ID != f.BindingID {
+		if target == nil {
+			sender.expireClosed(time.Now())
+			if route, ok := sender.closed[f.ChannelID]; ok && route.binding == f.BindingID {
+				return nil
+			}
 			return errors.New("unauthorized route")
+		}
+		if target.gateway != sender || target.binding.GatewayID != sender.device.ID || target.binding.ID != f.BindingID {
+			return errors.New("unauthorized route")
+		}
+		if target.ctx.Err() != nil {
+			return nil
 		}
 	} else {
 		if f.BindingID != sender.binding.ID || f.ChannelID != sender.channel {
 			return errors.New("unauthorized route")
 		}
 		target = h.gateways[sender.binding.GatewayID]
-		if target == nil {
+		if target == nil || target != sender.gateway {
 			return errors.New("gateway offline")
 		}
 	}
 	select {
 	case <-target.ctx.Done():
+		if sender.device.Role == "gateway" {
+			return nil
+		}
 		return errors.New("peer disconnected")
 	case target.out <- data:
 		if f.Kind == Close && sender.device.Role == "mobile" {
@@ -290,8 +321,37 @@ func (h *Hub) forward(sender *peer, f Frame, data []byte) error {
 		return nil
 	default:
 		target.cancel()
+		if sender.device.Role == "gateway" {
+			return nil
+		}
 		return errors.New("slow consumer")
 	}
+}
+
+// Accessed only under Hub.mu. A tombstone is bound to this gateway connection
+// and the exact binding, so late worker frames cannot become a route elsewhere.
+func (p *peer) expireClosed(now time.Time) {
+	for len(p.retired) > 0 {
+		channel := p.retired[0]
+		if len(p.retired) <= closedRouteLimit && now.Sub(p.closed[channel].at) < closedRouteTTL {
+			break
+		}
+		delete(p.closed, channel)
+		p.retired[0] = ""
+		p.retired = p.retired[1:]
+	}
+}
+
+func (p *peer) rememberClosed(channel, binding string) {
+	now := time.Now()
+	if p.closed == nil {
+		p.closed = make(map[string]closedRoute)
+	}
+	if _, exists := p.closed[channel]; !exists {
+		p.closed[channel] = closedRoute{binding: binding, at: now}
+		p.retired = append(p.retired, channel)
+	}
+	p.expireClosed(now)
 }
 
 func (h *Hub) write(p *peer) {
@@ -358,7 +418,8 @@ func (h *Hub) remove(p *peer) {
 		}
 	} else {
 		delete(h.mobiles, p.channel)
-		if g := h.gateways[p.binding.GatewayID]; g != nil {
+		if g := h.gateways[p.binding.GatewayID]; g != nil && g == p.gateway {
+			g.rememberClosed(p.channel, p.binding.ID)
 			h.enqueue(g, Frame{Kind: Close, BindingID: p.binding.ID, ChannelID: p.channel})
 		}
 	}

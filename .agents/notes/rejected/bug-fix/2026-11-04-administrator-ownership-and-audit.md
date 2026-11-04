@@ -18,6 +18,7 @@ Status: rejected — 用户明确要求保留 admin/admin 作为部署后首次�
 
 ## 记录归属
 
+本仓活跃记录已按 administrator、audit、session、device 检索：全局省察部分重叠，保留旧复现和限制并更新处置状态；[当前 schema](../../implemented/simplification/2026-11-04-prerelease-account-and-binding-schema.md)继续持有无需历史兼容的决定；[推送撤回](../../implemented/bug-fix/2026-11-04-push-withdrawal-independent-of-desktop-access.md)继续持有缩减权限独立于桌面资格的规则。没有同主题 proposed/rejected 待合并记录。
 
 ## Alternatives considered
 

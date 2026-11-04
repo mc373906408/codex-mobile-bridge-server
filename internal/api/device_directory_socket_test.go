@@ -216,3 +216,96 @@ func TestAdministratorDeviceAndSessionRevocationCloseOnlyTargetSockets(t *testin
 		t.Fatal("session revocation did not notify the desktop")
 	}
 }
+
+func TestCompletedPhoneRequestsKeepGatewayAndOtherPhoneConnected(t *testing.T) {
+	s := testutil.Database(t)
+	c := testutil.Config()
+	c.Development = true
+	app, err := New(c, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Hub.Shutdown)
+	server := httptest.NewServer(app)
+	app.Config.Origin = server.URL
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	g, m, binding := testutil.Devices(t, s)
+	dial := func(role string, device store.Device, binding string) *websocket.Conn {
+		t.Helper()
+		headers := http.Header{"Authorization": []string{"Bearer " + device.Token}}
+		if binding != "" {
+			headers.Set("X-Bridge-Binding", binding)
+		}
+		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/ws/"+role,
+			&websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{"bridge-relay-v1"}})
+		if err != nil {
+			t.Fatal("socket failed", err)
+		}
+		t.Cleanup(func() { _ = conn.CloseNow() })
+		return conn
+	}
+	read := func(conn *websocket.Conn) relay.Frame {
+		t.Helper()
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatal("shared relay unexpectedly disconnected", err)
+		}
+		frame, err := relay.Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return frame
+	}
+	write := func(conn *websocket.Conn, frame relay.Frame) {
+		t.Helper()
+		data, err := frame.Encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.Write(ctx, websocket.MessageBinary, data); err != nil {
+			t.Fatal("relay write failed", err)
+		}
+	}
+	gateway := dial("gateway", g, "")
+	standing := dial("mobile", m, binding.ID)
+	standingOpen := read(gateway)
+	read(standing)
+	for n := range 40 {
+		request := dial("mobile", m, binding.ID)
+		opened := read(gateway)
+		read(request)
+		if n%2 == 0 {
+			// Normal response completion closes the transient phone socket.
+			request.CloseNow()
+		} else {
+			// Desktop finishes its response first; the phone then leaves.
+			write(gateway, relay.Frame{Kind: relay.Close, BindingID: binding.ID, ChannelID: opened.ChannelID})
+			if frame := read(request); frame.Kind != relay.Close {
+				t.Fatal("desktop channel close was not forwarded")
+			}
+		}
+		closed := read(gateway)
+		if closed.Kind != relay.Close || closed.ChannelID != opened.ChannelID {
+			t.Fatal("wrong channel retired")
+		}
+		// The desktop worker can still have an encrypted frame and its final
+		// Close queued after the phone has already gone away.
+		write(gateway, relay.Frame{Kind: relay.Record, BindingID: binding.ID, ChannelID: closed.ChannelID, Payload: bytes.Repeat([]byte{7}, 16)})
+		write(gateway, closed)
+		frame := relay.Frame{Kind: relay.Record, BindingID: binding.ID, ChannelID: standingOpen.ChannelID,
+			Payload: bytes.Repeat([]byte{byte(n + 1)}, 16)}
+		write(gateway, frame)
+		if got := read(standing); !bytes.Equal(got.Payload, frame.Payload) {
+			t.Fatal("unrelated request lost data")
+		}
+		write(standing, frame)
+		if got := read(gateway); !bytes.Equal(got.Payload, frame.Payload) {
+			t.Fatal("gateway stopped receiving after another request closed")
+		}
+		if !app.Hub.GatewayOnline(g.ID) {
+			t.Fatal("gateway was disconnected by a completed request")
+		}
+	}
+}

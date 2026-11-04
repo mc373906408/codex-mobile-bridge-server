@@ -14,6 +14,7 @@ PostgreSQL 只由 `001_current.sql` 建立当前结构。已有迁移历史必�
 
 ## 记录归属
 
+F2 与本篇部分重叠：原省察保留修复前的复现事实，当前状态互链到本篇。F1 由[推送撤回修复](../bug-fix/2026-11-04-push-withdrawal-independent-of-desktop-access.md)持有，本次统一数据库初始化不改变其缩减权限契约。桌面和 App 分别记录 IPC、证明存储及 SQLite 的清理；本仓没有其他同主题 proposed 或 rejected 笔记。
 
 ## Alternatives considered
 
