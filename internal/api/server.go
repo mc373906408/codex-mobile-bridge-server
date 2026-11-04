@@ -345,16 +345,19 @@ func (a *Server) capabilities(w http.ResponseWriter, r *http.Request) error {
 	verificationMethods := []string{}
 	registrationFlow := ""
 	redemptionCodeLength := 0
+	redemptionBatchLimit := 0
 	if a.Config.Paid() {
 		login = "email"
 		verificationMethods = []string{"code"}
 		registrationFlow = "email_code_password"
 		redemptionCodeLength = security.RedemptionCodeLength
+		redemptionBatchLimit = 1
 	}
 	writeJSON(w, 200, map[string]any{"mode": a.Config.Mode, "login": login, "registration": a.Config.Paid(), "redemption": a.Config.Paid(),
 		"email_verification_methods": verificationMethods, "email_verification_code_length": 6,
 		"registration_flow":      registrationFlow,
 		"redemption_code_length": redemptionCodeLength,
+		"redemption_batch_limit": redemptionBatchLimit,
 		"redemption_web":         false, "web_home": "/", "web_console": "/admin",
 		"administrator_login": "username", "administrator_initial_setup": true, "web_languages": []string{"zh-CN", "en"},
 		"web_access":     "administrator_only",

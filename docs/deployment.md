@@ -5,6 +5,22 @@ Code and isolated Go/PostgreSQL tests do not establish SMTP delivery or real-dev
 push acceptance. Actual checks and remaining release gates are recorded in
 [implementation status](implementation-status.md).
 
+Each administrator code-generation operation creates one redemption batch. An
+account can redeem one code per batch; codes from other batches can extend its
+service. A repeated request for the same already-used code returns its original
+receipt. A second code from the same batch returns HTTP 409
+`redemption_batch_already_used` without consuming that code. Batch IDs are included
+in administrator results, lists and the CSV `batch_id` column.
+
+`002_redemption_batches.sql` upgrades the deployed `001_current.sql` baseline.
+Stop the old server before migrating: its generation code cannot supply the new
+required batch ID. Existing generation transactions are grouped by their common
+`created_at` value; existing redemptions count toward the limit, with entitlements,
+digests and receipts preserved. If an account already has multiple receipts in
+one historical batch, migration fails transactionally instead of dropping receipts
+or reclaiming service. Check for this before deployment. This does not restore
+support for the retired development schemas.
+
 System responsibilities, permission flows and known gaps are recorded in the
 [server architecture audit](../.agents/notes/implemented/architecture/2026-11-03-server-architecture-and-scope-audit.md).
 

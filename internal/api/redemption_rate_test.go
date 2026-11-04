@@ -26,6 +26,7 @@ func TestCapabilitiesDeclareNewCodeLengthWithoutEnablingSelfhostRedemption(t *te
 			var value struct {
 				Redemption bool `json:"redemption"`
 				Length     int  `json:"redemption_code_length"`
+				BatchLimit int  `json:"redemption_batch_limit"`
 			}
 			if err = json.Unmarshal(response.Body.Bytes(), &value); err != nil {
 				t.Fatal(err)
@@ -36,6 +37,9 @@ func TestCapabilitiesDeclareNewCodeLengthWithoutEnablingSelfhostRedemption(t *te
 			}
 			if value.Redemption != c.Paid() || value.Length != want {
 				t.Fatal("capabilities must describe generation length without enabling selfhost codes")
+			}
+			if (c.Paid() && value.BatchLimit != 1) || (!c.Paid() && value.BatchLimit != 0) {
+				t.Fatal("batch policy must be explicit only when redemption is available")
 			}
 		})
 	}

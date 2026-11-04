@@ -1,7 +1,8 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
 const {fixture,descendants}=require('./admin_fixture.cjs');
-function codeRecord(code,index=1){return {id:'00000000-0000-4000-8000-'+String(index).padStart(12,'0'),code,days:30};}
+const batch='00000000-0000-4000-8000-000000000099';
+function codeRecord(code,index=1){return {id:'00000000-0000-4000-8000-'+String(index).padStart(12,'0'),batch_id:batch,code,days:30};}
 
 for(const language of ['en','zh-CN']){
   test('actual generated 16-character codes display, copy and export verbatim in '+language,async()=>{
@@ -14,7 +15,9 @@ for(const language of ['en','zh-CN']){
     assert.equal(ui.clipboard,code);assert.equal(ui.nodes.get('message').textContent,ui.texts.code_copied_notice);
     assert.equal(ui.nodes.get('code-export').hidden,false);
     const csv=await ui.exports.get(ui.nodes.get('code-download').href).text();
-    assert.ok(csv.startsWith('id,code,days\r\n'));assert.ok(csv.includes(','+code+',30\r\n'));
+    assert.ok(csv.startsWith('id,code,days,batch_id\r\n'));assert.ok(csv.includes(','+code+',30,'+batch+'\r\n'));
+    assert.ok(ui.nodes.get('code-export-summary').textContent.includes(batch));
+    assert.ok(descendants(ui.nodes.get('code-list')).some(node=>node.textContent===ui.texts.code_batch_id+': '+batch));
     ui.pagehide();assert.equal(ui.nodes.get('generated-code-list').children.length,0);
     assert.equal(ui.exports.size,0);assert.equal(ui.nodes.get('code-export').hidden,true);
     assert.equal(descendants(ui.nodes.get('code-list')).some(node=>node.textContent===code),false);
@@ -36,4 +39,13 @@ test('generated-code validation rejects wrong lengths, alphabets and duplicate r
   await ui.generate([valid,{...valid,code:'Q4B6T2K7D3NY5VMA'}]);
   assert.equal(ui.nodes.get('message').textContent,ui.texts.code_generation_uncertain);
   assert.equal(ui.requests.some(request=>request.url==='/v1/account/redeem'),false);
+});
+test('mixed or missing batch identities cannot replace a confirmed export',async()=>{
+  const ui=await fixture(),valid=codeRecord('K7D3NY5V2M6Q4BTA');await ui.generate([valid]);
+  const url=ui.nodes.get('code-download').href;
+  for(const batch_id of [undefined,'invalid','00000000-0000-4000-8000-000000000098']){
+    await ui.generate([valid,{...codeRecord('Q4B6T2K7D3NY5VMA',2),batch_id}]);
+    assert.equal(ui.nodes.get('message').textContent,ui.texts.code_generation_uncertain);
+    assert.equal(ui.nodes.get('code-download').href,url);
+  }
 });

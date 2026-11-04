@@ -91,19 +91,20 @@ async function start() {
   }, async result => {
     if (!result.export_once || !Array.isArray(result.codes) || !result.codes.length || result.codes.length > 100 || result.codes.some(code =>
       !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(code.id) ||
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(code.batch_id) || code.batch_id !== result.codes[0].batch_id ||
       !/^(?:[A-Z2-7]{16}|[A-Z2-7]{39})$/.test(code.code) || !Number.isInteger(code.days) || code.days < 1 || code.days > 3650) ||
       new Set(result.codes.map(code => code.id)).size !== result.codes.length) {
       throw new Error(t("code_generation_uncertain"));
     }
     // Only the latest generation response stays in page memory, never browser storage.
-    const csv = ["id,code,days", ...result.codes.map(code => `${code.id},${code.code},${code.days}`)].join("\r\n") + "\r\n";
+    const csv = ["id,code,days,batch_id", ...result.codes.map(code => `${code.id},${code.code},${code.days},${code.batch_id}`)].join("\r\n") + "\r\n";
     const nextURL = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     clearCodeExport();
     exportURL = nextURL;
-    result.codes.forEach(code => generatedCodes.set(code.id, { code: code.code, days: code.days }));
+    result.codes.forEach(code => generatedCodes.set(code.id, { code: code.code, days: code.days, batch_id: code.batch_id }));
     const link = document.getElementById("code-download"); link.href = exportURL;
     link.download = `bridge-codes-${Date.now()}.csv`;
-    document.getElementById("code-export-summary").textContent = t("code_batch_ready", { count: result.codes.length });
+    document.getElementById("code-export-summary").textContent = t("code_batch_ready", { count: result.codes.length }) + " / " + t("code_batch_id") + ": " + result.codes[0].batch_id;
     document.getElementById("code-export").hidden = false;
     renderCodes();
     link.click(); notice(t("codes_generated_notice")); await load();
@@ -331,6 +332,7 @@ async function start() {
     const details = element("details", "", "code-record-details");
     details.append(element("summary", t("code_id_column")), element("span", record.id, "record-id"));
     node.append(details);
+    node.append(element("span", t("code_batch_id") + ": " + record.batch_id, "fine record-id"));
     return node;
   }
   function renderGeneratedCodes() {

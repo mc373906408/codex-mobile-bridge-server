@@ -12,6 +12,10 @@ func TestCurrentSchemaRejectsRetiredDevelopmentMigrations(t *testing.T) {
 	s := testutil.Database(t)
 	ctx := context.Background()
 	var count int
+	var migrationsBefore int
+	if err := s.Pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrationsBefore); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables
 		WHERE table_schema=current_schema() AND table_name IN ('pairings','email_verification_codes')`).Scan(&count); err != nil || count != 0 {
 		t.Fatal("fresh schema contains retired tables", err)
@@ -22,7 +26,7 @@ func TestCurrentSchemaRejectsRetiredDevelopmentMigrations(t *testing.T) {
 	if err := s.Migrate(ctx); err == nil || !strings.Contains(err.Error(), "unsupported development database schema") {
 		t.Fatal("old migration history must fail explicitly instead of claiming compatibility", err)
 	}
-	if err := s.Pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 2 {
+	if err := s.Pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != migrationsBefore+1 {
 		t.Fatal("refusing an old database must not rewrite its migration history", err)
 	}
 }

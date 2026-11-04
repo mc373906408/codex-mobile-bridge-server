@@ -60,7 +60,10 @@ func TestShortAndLegacyRedemptionCodesRemainSingleUseAndNormalized(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Pool.Exec(ctx, "INSERT INTO redemption_codes(id,digest,days) VALUES($1,$2,$3)", legacyID, store.CodeDigest(legacy), 7); err != nil {
+	if _, err = s.Pool.Exec(ctx, "INSERT INTO redemption_batches(id) VALUES($1)", legacyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Pool.Exec(ctx, "INSERT INTO redemption_codes(id,batch_id,digest,days) VALUES($1,$1,$2,$3)", legacyID, store.CodeDigest(legacy), 7); err != nil {
 		t.Fatal(err)
 	}
 	for _, code := range []string{codes[0].Code, legacy} {

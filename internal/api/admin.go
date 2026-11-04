@@ -233,7 +233,7 @@ func (a *Server) adminListCodes(w http.ResponseWriter, r *http.Request) error {
 	if _, err := a.administrator(r); err != nil {
 		return err
 	}
-	return a.listPage(w, r, "codes", "codes", "SELECT c.id::text,c.days,c.created_at,c.used_at,c.revoked_at FROM redemption_codes c WHERE true", "c.created_at", "c.id")
+	return a.listPage(w, r, "codes", "codes", "SELECT c.id::text,c.batch_id::text,c.days,c.created_at,c.used_at,c.revoked_at FROM redemption_codes c WHERE true", "c.created_at", "c.id")
 }
 func (a *Server) adminRevokeCode(w http.ResponseWriter, r *http.Request) error {
 	p, err := a.administrator(r)
@@ -265,7 +265,7 @@ func (a *Server) adminRedemptions(w http.ResponseWriter, r *http.Request) error 
 	if _, err := a.administrator(r); err != nil {
 		return err
 	}
-	return a.listPage(w, r, "redemptions", "redemptions", "SELECT d.id::text,d.account_id::text,d.code_id::text,d.days,d.expires_at,d.created_at FROM redemptions d WHERE true", "d.created_at", "d.id")
+	return a.listPage(w, r, "redemptions", "redemptions", "SELECT d.id::text,d.account_id::text,d.code_id::text,d.batch_id::text,d.days,d.expires_at,d.created_at FROM redemptions d WHERE true", "d.created_at", "d.id")
 }
 func (a *Server) adminAudit(w http.ResponseWriter, r *http.Request) error {
 	if _, err := a.administrator(r); err != nil {

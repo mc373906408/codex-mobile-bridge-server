@@ -4,6 +4,29 @@ For the current architecture, permission flows and reproduced gaps, see the
 [server architecture audit](../.agents/notes/implemented/architecture/2026-11-03-server-architecture-and-scope-audit.md).
 The dated checkpoints below retain their original verification scope.
 
+## Per-account redemption batch limit deployed on 2026-11-04
+
+The hosted instance runs `bridge-server:redemption-batches-3f6d61f36b7a8cc0`,
+binary SHA256 `1727f7df25822356101ad87ff05a23bd2cdc6adb4da7d0137e54a19b1c88f4cd`.
+Each administrator generation creates one UUID batch. An account can redeem one
+code from that batch; different batches extend service, while retrying the same
+code returns its original receipt. Duplicate batch claims return HTTP 409
+`redemption_batch_already_used` and do not consume the other code.
+
+The current 001 baseline is upgraded by `002_redemption_batches.sql`. Historical
+generation groups and their receipts count toward the limit. The deployment
+preserved 2 accounts, 51 code digests across 2 batches, 1 redemption and the existing
+gateway/mobile/binding; semantic data hashes match before and after migration.
+The application was stopped before migration; PostgreSQL, HTTPS and credentials
+were retained. The retired server image was removed after verification.
+
+The PostgreSQL-backed Go suite passes 114 tests without skips; vet, administrator
+UI and desktop error-translation tests pass. The deployment host repeated the
+four storage batch tests and the cross-session API test three times in an isolated
+database, then verified actual candidate executable startup. Public TLS, health,
+capability and static-resource checks pass. No production code was consumed for
+testing. See the [batch-limit decision](../.agents/notes/implemented/feature/2026-11-04-redemption-batch-account-limit.md).
+
 ## Relay close isolation deployed on 2026-11-04
 
 The hosted instance now runs `bridge-server:relay-stability-1fd6a04962d31b61`

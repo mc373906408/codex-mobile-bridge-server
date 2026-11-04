@@ -45,7 +45,7 @@ async function fixture(language='en',route){
         const parsed=new globalThis.URL(url,'https://fixture.test'),pathname=parsed.pathname;
         if(pathname.includes('/assets/locale_'))data=texts;
         else if(pathname==='/v1/admin/codes'&&method==='POST'){
-          data=batch;records=batch.codes.map(code=>({id:code.id,days:code.days,created_at:'2030-01-01T00:00:00Z',used_at:null,revoked_at:null}));
+          data=batch;records=batch.codes.map(code=>({id:code.id,batch_id:code.batch_id,days:code.days,created_at:'2030-01-01T00:00:00Z',used_at:null,revoked_at:null}));
         }else if(pathname==='/v1/admin/codes')data={codes:records,next_cursor:''};
         else if(pathname==='/v1/admin/status')data={gateways_online:0,mobiles_online:0,push_queued:0};
         else{

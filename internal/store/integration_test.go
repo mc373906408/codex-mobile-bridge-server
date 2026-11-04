@@ -94,10 +94,15 @@ func TestConcurrentRedemptionsAndUTC(t *testing.T) {
 	s := testutil.Database(t)
 	ctx := context.Background()
 	a := testutil.Account(t, s, "redeemer")
-	codes, err := s.GenerateCodes(ctx, a.ID, 7, 3)
-	if err != nil {
-		t.Fatal(err)
+	var codes []store.GeneratedCode
+	for range 3 {
+		batch, err := s.GenerateCodes(ctx, a.ID, 7, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		codes = append(codes, batch[0])
 	}
+	var err error
 	request, _ := security.ID()
 	var wg sync.WaitGroup
 	outcomes := make(chan error, 16)

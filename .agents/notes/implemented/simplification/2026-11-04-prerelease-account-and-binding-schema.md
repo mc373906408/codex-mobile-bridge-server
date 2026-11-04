@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-PostgreSQL 只由 `001_current.sql` 建立当前结构。已有迁移历史必须属于当前代码，旧开发库明确报错，不自动改写或清空。配对表、`pairing_id`、旧请求/批准/拒绝路由和对应 Store 方法全部移除；登记建立同账号目录关系，桌面 access 开关继续用 revision 防止迟到开启覆盖关闭。
+PostgreSQL 由 `001_current.sql` 建立当前基线。已有迁移历史必须属于当前代码，旧开发库明确报错，不自动改写或清空。配对表、`pairing_id`、旧请求/批准/拒绝路由和对应 Store 方法全部移除；登记建立同账号目录关系，桌面 access 开关继续用 revision 防止迟到开启覆盖关闭。当前已部署基线后新增的[每账号每批限兑一次](../feature/2026-11-04-redemption-batch-account-limit.md)通过 `002_redemption_batches.sql` 追加业务结构并保留现有数据，不恢复旧配对或旧验证码升级路径。
 
 邮箱注册只保留 `registration-code → registration-verify → register`。短期证明与密码一起创建新账号；任何已有账号均不能被注册流程覆盖。旧 `verification/verify-code`、账号绑定验证码、预建未验证账号及旧密码激活路径被删除。邮件只属于注册挑战或密码重置，重置密码与 selfhost 管理员创建用户各自保留。持久化猜测限额、重发失效、单次消费、账号隔离和通知资格检查继续执行。
 

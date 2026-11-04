@@ -25,6 +25,8 @@ type Redemption struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+var ErrBatchRedeemed = errors.New("account already redeemed this batch")
+
 func (s *Store) Entitlement(ctx context.Context, accountID string, paid bool) (Entitlement, error) {
 	e := Entitlement{Required: paid}
 	var eligible bool
@@ -60,10 +62,10 @@ func (s *Store) Redeem(ctx context.Context, accountID, code, requestID string) (
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		var codeID string
+		var codeID, batchID string
 		var usedBy *string
 		var usedAt, revokedAt *time.Time
-		if err := tx.QueryRow(ctx, "SELECT id,days,used_by,used_at,revoked_at FROM redemption_codes WHERE digest=$1 FOR UPDATE", digest).Scan(&codeID, &result.Days, &usedBy, &usedAt, &revokedAt); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT id,batch_id,days,used_by,used_at,revoked_at FROM redemption_codes WHERE digest=$1 FOR UPDATE", digest).Scan(&codeID, &batchID, &result.Days, &usedBy, &usedAt, &revokedAt); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrDenied
 			}
@@ -82,6 +84,13 @@ func (s *Store) Redeem(ctx context.Context, accountID, code, requestID string) (
 		} else {
 			if revokedAt != nil {
 				return ErrDenied
+			}
+			var claimed bool
+			if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM redemptions WHERE account_id=$1 AND batch_id=$2)", accountID, batchID).Scan(&claimed); err != nil {
+				return err
+			}
+			if claimed {
+				return ErrBatchRedeemed
 			}
 			var current *time.Time
 			var now time.Time
@@ -103,11 +112,16 @@ func (s *Store) Redeem(ctx context.Context, accountID, code, requestID string) (
 			if _, err = tx.Exec(ctx, "UPDATE redemption_codes SET used_by=$2,used_at=now() WHERE id=$1", codeID, accountID); err != nil {
 				return err
 			}
-			if err = tx.QueryRow(ctx, "INSERT INTO redemptions(id,account_id,code_id,days,expires_at) VALUES($1,$2,$3,$4,$5) RETURNING created_at", result.ID, accountID, codeID, result.Days, result.ExpiresAt).Scan(&result.CreatedAt); err != nil {
+			if err = tx.QueryRow(ctx, `INSERT INTO redemptions(id,account_id,code_id,batch_id,days,expires_at)
+				VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(account_id,batch_id) DO NOTHING RETURNING created_at`,
+				result.ID, accountID, codeID, batchID, result.Days, result.ExpiresAt).Scan(&result.CreatedAt); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return ErrBatchRedeemed // The whole transaction rolls back, including the code and entitlement.
+				}
 				return err
 			}
 			if err = RecordAudit(ctx, tx, AuditEvent{ActorID: accountID, AccountID: accountID, Action: "entitlement.redeem", TargetID: result.ID,
-				Before: map[string]any{"expires_at": current}, After: map[string]any{"expires_at": result.ExpiresAt, "days": result.Days}}); err != nil {
+				Before: map[string]any{"expires_at": current}, After: map[string]any{"expires_at": result.ExpiresAt, "days": result.Days, "batch_id": batchID}}); err != nil {
 				return err
 			}
 		}
@@ -122,9 +136,10 @@ func scanRedemption(ctx context.Context, tx pgx.Tx, id string, out *Redemption) 
 }
 
 type GeneratedCode struct {
-	ID   string `json:"id"`
-	Code string `json:"code"`
-	Days int    `json:"days"`
+	ID      string `json:"id"`
+	BatchID string `json:"batch_id"`
+	Code    string `json:"code"`
+	Days    int    `json:"days"`
 }
 
 func (s *Store) GenerateCodes(ctx context.Context, actor string, days, count int) ([]GeneratedCode, error) {
@@ -133,6 +148,13 @@ func (s *Store) GenerateCodes(ctx context.Context, actor string, days, count int
 	}
 	result := make([]GeneratedCode, 0, count)
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		batch, err := security.ID()
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, "INSERT INTO redemption_batches(id) VALUES($1)", batch); err != nil {
+			return err
+		}
 		for i := 0; i < count; i++ {
 			id, err := security.ID()
 			if err != nil {
@@ -142,12 +164,12 @@ func (s *Store) GenerateCodes(ctx context.Context, actor string, days, count int
 			if err != nil {
 				return err
 			}
-			if _, err = tx.Exec(ctx, "INSERT INTO redemption_codes(id,digest,days) VALUES($1,$2,$3)", id, CodeDigest(code), days); err != nil {
+			if _, err = tx.Exec(ctx, "INSERT INTO redemption_codes(id,batch_id,digest,days) VALUES($1,$2,$3,$4)", id, batch, CodeDigest(code), days); err != nil {
 				return err
 			}
-			result = append(result, GeneratedCode{ID: id, Code: code, Days: days})
+			result = append(result, GeneratedCode{ID: id, BatchID: batch, Code: code, Days: days})
 		}
-		return RecordAudit(ctx, tx, AuditEvent{ActorID: actor, AccountID: actor, Action: "codes.generate",
+		return RecordAudit(ctx, tx, AuditEvent{ActorID: actor, AccountID: actor, Action: "codes.generate", TargetID: batch,
 			After: map[string]any{"count": count, "days": days}})
 	})
 	return result, err

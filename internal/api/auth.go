@@ -241,6 +241,9 @@ func (a *Server) redeem(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	result, err := a.Store.Redeem(r.Context(), p.ID, in.Code, in.RequestID)
+	if errors.Is(err, store.ErrBatchRedeemed) {
+		return failure{409, "redemption_batch_already_used"}
+	}
 	if errors.Is(err, store.ErrDenied) {
 		return bad("invalid_redemption")
 	}
