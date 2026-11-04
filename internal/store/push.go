@@ -63,9 +63,6 @@ func (s *Store) RegisterEndpoint(ctx context.Context, d Device, in EndpointInput
 	if d.Role != "mobile" {
 		return out, ErrDenied
 	}
-	if _, err := s.Binding(ctx, in.BindingID, d, false); err != nil {
-		return out, err
-	}
 	if !in.Enabled || !in.Consent {
 		err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 			// Withdrawal needs the caller's own live identity, not desktop access or service days.
@@ -99,6 +96,9 @@ func (s *Store) RegisterEndpoint(ctx context.Context, d Device, in EndpointInput
 			}
 			return err
 		})
+		return out, err
+	}
+	if _, err := s.Binding(ctx, in.BindingID, d, false); err != nil {
 		return out, err
 	}
 	if (in.Platform == "umeng" && (!c.UmengEnabled() || in.AppID != c.Umeng.AppKey || !umengToken.MatchString(in.Token))) ||
