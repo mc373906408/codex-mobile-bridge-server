@@ -104,6 +104,13 @@ func (h *Hub) Status() (int, int) {
 	return len(h.gateways), len(h.mobiles)
 }
 
+func (h *Hub) GatewayOnline(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p := h.gateways[id]
+	return p != nil && p.ctx.Err() == nil
+}
+
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b store.Binding, token string) {
 	// Browser E2EE is deliberately not part of v1. Native clients send no Origin.
 	if r.Header.Get("Origin") != "" || r.URL.RawQuery != "" {
@@ -156,6 +163,13 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 	}
 	h.mu.Unlock()
 	defer h.remove(p)
+	if d.Role == "mobile" {
+		// Register before rechecking: a concurrent close must see this peer too.
+		if _, err := h.store.Binding(ctx, b.ID, d, true); err != nil {
+			http.Error(w, "binding unavailable", http.StatusForbidden)
+			return
+		}
+	}
 	p.conn, err = websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"bridge-relay-v1"}, CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		return

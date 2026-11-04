@@ -71,7 +71,7 @@ var passwordHash string
 func Account(t *testing.T, s *store.Store, login string) store.Account {
 	t.Helper()
 	once.Do(func() { passwordHash, _ = security.Password("test-only-password-123") })
-	a, err := s.CreateAccount(context.Background(), login, passwordHash, true, Config(), "")
+	a, err := s.CreateAccount(context.Background(), login, passwordHash, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,15 +103,12 @@ func Devices(t *testing.T, s *store.Store) (store.Device, store.Device, store.Bi
 	if err != nil {
 		t.Fatal(err)
 	}
-	pairing, err := s.NewPairing(ctx, g)
-	if err != nil {
-		t.Fatal(err)
+	bindings, err := s.DeviceBindings(ctx, m)
+	if err != nil || len(bindings) != 1 {
+		t.Fatal("automatic device discovery failed", err)
 	}
-	b, err := s.JoinPairing(ctx, pairing.ID, m)
+	b, err := s.SetBindingAccess(ctx, bindings[0].ID, g, m.PublicKey, true, bindings[0].AccessRevision, false)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.ApproveBinding(ctx, b.ID, g, m.PublicKey); err != nil {
 		t.Fatal(err)
 	}
 	b, err = s.Binding(ctx, b.ID, g, false)

@@ -34,9 +34,6 @@
       <label>{{.Text.password_confirmation}}<input name="password_confirmation" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
       <button>{{.Text.setup_action}}</button>
     </form>
-  {{else if .Verify}}
-    <p class="eyebrow">{{.Text.account_security}}</p><h2>{{.Text.verify_heading}}</h2><p>{{.Text.verify_help}}</p>
-    <form id="verify" method="post" action="/v1/auth/verify"><button>{{.Text.verify_action}}</button></form>
   {{else if .Reset}}
     <p class="eyebrow">{{.Text.account_security}}</p><h2>{{.Text.reset_heading}}</h2><p>{{.Text.reset_help}}</p>
     <form id="reset" method="post" action="/v1/auth/reset"><label>{{.Text.new_password}}<input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label><button>{{.Text.reset_action}}</button></form>

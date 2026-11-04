@@ -2,7 +2,9 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/mc373906408/codex-mobile-bridge-server/internal/security"
@@ -15,6 +17,13 @@ func (a *Server) adminRoutes() {
 	a.handle("POST /v1/admin/users/{id}/disable", a.adminDisable)
 	a.handle("POST /v1/admin/users/{id}/reset", a.adminReset)
 	a.handle("POST /v1/admin/users/{id}/revoke-entitlement", a.adminRevokeEntitlement)
+	a.handle("GET /v1/admin/users/{account}/devices", a.adminDevices)
+	a.handle("GET /v1/admin/users/{account}/bindings", a.adminBindings)
+	a.handle("GET /v1/admin/users/{account}/sessions", a.adminSessions)
+	a.handle("DELETE /v1/admin/users/{account}/gateways/{id}", func(w http.ResponseWriter, r *http.Request) error { return a.adminRevokeResource(w, r, "gateway") })
+	a.handle("DELETE /v1/admin/users/{account}/installations/{id}", func(w http.ResponseWriter, r *http.Request) error { return a.adminRevokeResource(w, r, "mobile") })
+	a.handle("DELETE /v1/admin/users/{account}/bindings/{id}", func(w http.ResponseWriter, r *http.Request) error { return a.adminRevokeResource(w, r, "binding") })
+	a.handle("DELETE /v1/admin/users/{account}/sessions/{id}", func(w http.ResponseWriter, r *http.Request) error { return a.adminRevokeResource(w, r, "session") })
 	a.handle("POST /v1/admin/codes", a.adminCodes)
 	a.handle("GET /v1/admin/codes", a.adminListCodes)
 	a.handle("DELETE /v1/admin/codes/{id}", a.adminRevokeCode)
@@ -26,27 +35,13 @@ func (a *Server) adminUsers(w http.ResponseWriter, r *http.Request) error {
 	if _, err := a.administrator(r); err != nil {
 		return err
 	}
-	rows, err := a.Store.Pool.Query(r.Context(), `SELECT a.id,a.login,a.verified,a.administrator,a.disabled,e.expires_at
-		FROM accounts a JOIN entitlements e ON e.account_id=a.id ORDER BY a.created_at DESC LIMIT 200`)
-	if err != nil {
-		return err
+	search := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	if len(search) > 254 || !utf8.ValidString(search) || strings.ContainsAny(search, "\x00\r\n") || len(r.URL.Query()["q"]) > 1 {
+		return bad("invalid_search")
 	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id, login string
-		var verified, admin, disabled bool
-		var expiry *time.Time
-		if err = rows.Scan(&id, &login, &verified, &admin, &disabled, &expiry); err != nil {
-			return err
-		}
-		items = append(items, map[string]any{"id": id, "login": login, "verified": verified, "administrator": admin, "disabled": disabled, "expires_at": expiry})
-	}
-	if err = rows.Err(); err != nil {
-		return err
-	}
-	writeJSON(w, 200, map[string]any{"users": items})
-	return nil
+	return a.listPage(w, r, "users", "users:"+search, `SELECT a.id::text,a.login,a.verified,a.administrator,a.disabled,e.expires_at,a.created_at
+		FROM accounts a JOIN entitlements e ON e.account_id=a.id
+		WHERE ($1='' OR strpos(lower(a.login),$1)>0 OR strpos(a.id::text,$1)>0)`, "a.created_at", "a.id", search)
 }
 func (a *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) error {
 	p, err := a.administrator(r)
@@ -71,7 +66,7 @@ func (a *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return bad("invalid_password")
 	}
-	user, err := a.Store.CreateAccount(r.Context(), login, hash, true, a.Config, p.ID)
+	user, err := a.Store.CreateAccount(r.Context(), login, hash, p.ID)
 	if err != nil {
 		return err
 	}
@@ -88,23 +83,39 @@ func (a *Server) adminDisable(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var in struct {
-		Disabled bool `json:"disabled"`
+		Disabled *bool `json:"disabled"`
 	}
 	if err = body(w, r, &in); err != nil {
 		return err
 	}
-	if id == p.ID && in.Disabled {
+	if in.Disabled == nil {
+		return bad("invalid_body")
+	}
+	if id == p.ID && *in.Disabled {
 		return bad("cannot_disable_current_administrator")
 	}
 	err = pgx.BeginFunc(r.Context(), a.Store.Pool, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(r.Context(), "UPDATE accounts SET disabled=$2 WHERE id=$1", id, in.Disabled)
-		if err != nil {
+		if err := store.AuthorizeAdministration(r.Context(), tx, p, id); err != nil {
 			return err
 		}
-		if tag.RowsAffected() != 1 {
-			return store.ErrNotFound
+		var before bool
+		if err := tx.QueryRow(r.Context(), "SELECT disabled FROM accounts WHERE id=$1", id).Scan(&before); err != nil {
+			return err
 		}
-		return store.Audit(r.Context(), tx, p.ID, "account.disable", id)
+		if before == *in.Disabled {
+			return nil
+		}
+		if _, err := tx.Exec(r.Context(), "UPDATE accounts SET disabled=$2 WHERE id=$1", id, *in.Disabled); err != nil {
+			return err
+		}
+		if *in.Disabled {
+			if _, err := tx.Exec(r.Context(), `UPDATE push_jobs SET status='cancelled' WHERE status IN ('queued','leased')
+				AND binding_id IN (SELECT b.id FROM bindings b JOIN gateways g ON g.id=b.gateway_id WHERE g.account_id=$1)`, id); err != nil {
+				return err
+			}
+		}
+		return store.RecordAudit(r.Context(), tx, store.AuditEvent{ActorID: p.ID, AccountID: id, SessionID: p.SessionID,
+			Action: "account.disable", TargetID: id, Before: map[string]any{"disabled": before}, After: map[string]any{"disabled": *in.Disabled}})
 	})
 	if err != nil {
 		return err
@@ -136,6 +147,9 @@ func (a *Server) adminReset(w http.ResponseWriter, r *http.Request) error {
 		return bad("invalid_password")
 	}
 	err = pgx.BeginFunc(r.Context(), a.Store.Pool, func(tx pgx.Tx) error {
+		if err := store.AuthorizeAdministration(r.Context(), tx, p, id); err != nil {
+			return err
+		}
 		tag, err := tx.Exec(r.Context(), "UPDATE accounts SET password_hash=$2 WHERE id=$1", id, hash)
 		if err != nil {
 			return err
@@ -143,10 +157,11 @@ func (a *Server) adminReset(w http.ResponseWriter, r *http.Request) error {
 		if tag.RowsAffected() != 1 {
 			return store.ErrNotFound
 		}
-		if _, err = tx.Exec(r.Context(), "UPDATE sessions SET revoked_at=now() WHERE account_id=$1", id); err != nil {
+		if err = store.RevokeAccountSessions(r.Context(), tx, p, id, "administrator_password_reset"); err != nil {
 			return err
 		}
-		return store.Audit(r.Context(), tx, p.ID, "account.reset", id)
+		return store.RecordAudit(r.Context(), tx, store.AuditEvent{ActorID: p.ID, AccountID: id, SessionID: p.SessionID,
+			Action: "account.reset", TargetID: id, After: map[string]any{"sessions_revoked": true}})
 	})
 	if err != nil {
 		return err
@@ -165,6 +180,13 @@ func (a *Server) adminRevokeEntitlement(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 	err = pgx.BeginFunc(r.Context(), a.Store.Pool, func(tx pgx.Tx) error {
+		if err := store.AuthorizeAdministration(r.Context(), tx, p, id); err != nil {
+			return err
+		}
+		var before, after *time.Time
+		if err := tx.QueryRow(r.Context(), "SELECT expires_at FROM entitlements WHERE account_id=$1 FOR UPDATE", id).Scan(&before); err != nil {
+			return err
+		}
 		tag, err := tx.Exec(r.Context(), "UPDATE entitlements SET expires_at=now() WHERE account_id=$1", id)
 		if err != nil {
 			return err
@@ -172,7 +194,11 @@ func (a *Server) adminRevokeEntitlement(w http.ResponseWriter, r *http.Request) 
 		if tag.RowsAffected() != 1 {
 			return store.ErrNotFound
 		}
-		return store.Audit(r.Context(), tx, p.ID, "entitlement.revoke", id)
+		if err = tx.QueryRow(r.Context(), "SELECT expires_at FROM entitlements WHERE account_id=$1", id).Scan(&after); err != nil {
+			return err
+		}
+		return store.RecordAudit(r.Context(), tx, store.AuditEvent{ActorID: p.ID, AccountID: id, SessionID: p.SessionID,
+			Action: "entitlement.revoke", TargetID: id, Before: map[string]any{"expires_at": before}, After: map[string]any{"expires_at": after}})
 	})
 	if err != nil {
 		return err
@@ -207,27 +233,7 @@ func (a *Server) adminListCodes(w http.ResponseWriter, r *http.Request) error {
 	if _, err := a.administrator(r); err != nil {
 		return err
 	}
-	rows, err := a.Store.Pool.Query(r.Context(), "SELECT id,days,created_at,used_at,revoked_at FROM redemption_codes ORDER BY created_at DESC LIMIT 200")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id string
-		var days int
-		var created time.Time
-		var used, revoked *time.Time
-		if err = rows.Scan(&id, &days, &created, &used, &revoked); err != nil {
-			return err
-		}
-		items = append(items, map[string]any{"id": id, "days": days, "created_at": created, "used_at": used, "revoked_at": revoked})
-	}
-	if err = rows.Err(); err != nil {
-		return err
-	}
-	writeJSON(w, 200, map[string]any{"codes": items})
-	return nil
+	return a.listPage(w, r, "codes", "codes", "SELECT c.id::text,c.days,c.created_at,c.used_at,c.revoked_at FROM redemption_codes c WHERE true", "c.created_at", "c.id")
 }
 func (a *Server) adminRevokeCode(w http.ResponseWriter, r *http.Request) error {
 	p, err := a.administrator(r)
@@ -246,7 +252,8 @@ func (a *Server) adminRevokeCode(w http.ResponseWriter, r *http.Request) error {
 		if tag.RowsAffected() != 1 {
 			return store.ErrConflict
 		}
-		return store.Audit(r.Context(), tx, p.ID, "code.revoke", id)
+		return store.RecordAudit(r.Context(), tx, store.AuditEvent{ActorID: p.ID, AccountID: p.ID, SessionID: p.SessionID,
+			Action: "code.revoke", TargetID: id, After: map[string]any{"revoked": true}})
 	})
 	if err != nil {
 		return err
@@ -258,51 +265,18 @@ func (a *Server) adminRedemptions(w http.ResponseWriter, r *http.Request) error 
 	if _, err := a.administrator(r); err != nil {
 		return err
 	}
-	rows, err := a.Store.Pool.Query(r.Context(), "SELECT id,account_id,code_id,days,expires_at,created_at FROM redemptions ORDER BY created_at DESC LIMIT 200")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id, account, code string
-		var days int
-		var expiry, created time.Time
-		if err = rows.Scan(&id, &account, &code, &days, &expiry, &created); err != nil {
-			return err
-		}
-		items = append(items, map[string]any{"id": id, "account_id": account, "code_id": code, "days": days, "expires_at": expiry, "created_at": created})
-	}
-	if err = rows.Err(); err != nil {
-		return err
-	}
-	writeJSON(w, 200, map[string]any{"redemptions": items})
-	return nil
+	return a.listPage(w, r, "redemptions", "redemptions", "SELECT d.id::text,d.account_id::text,d.code_id::text,d.days,d.expires_at,d.created_at FROM redemptions d WHERE true", "d.created_at", "d.id")
 }
 func (a *Server) adminAudit(w http.ResponseWriter, r *http.Request) error {
 	if _, err := a.administrator(r); err != nil {
 		return err
 	}
-	rows, err := a.Store.Pool.Query(r.Context(), "SELECT actor_id,action,target_id,created_at FROM audit_log ORDER BY id DESC LIMIT 200")
-	if err != nil {
-		return err
+	account := r.URL.Query().Get("account_id")
+	if account != "" && validID(account) != nil || len(r.URL.Query()["account_id"]) > 1 {
+		return bad("invalid_identifier")
 	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var actor, target *string
-		var action string
-		var created time.Time
-		if err = rows.Scan(&actor, &action, &target, &created); err != nil {
-			return err
-		}
-		items = append(items, map[string]any{"actor_id": actor, "action": action, "target_id": target, "created_at": created})
-	}
-	if err = rows.Err(); err != nil {
-		return err
-	}
-	writeJSON(w, 200, map[string]any{"audit": items})
-	return nil
+	return a.listPage(w, r, "audit", "audit:"+account, `SELECT a.id::text,a.actor_id::text,a.account_id::text,a.session_id::text,
+		a.device_id::text,a.action,a.target_id::text,a.details,a.created_at FROM audit_log a WHERE ($1='' OR a.account_id=NULLIF($1,'')::uuid)`, "", "a.id", account)
 }
 func (a *Server) adminStatus(w http.ResponseWriter, r *http.Request) error {
 	if _, err := a.administrator(r); err != nil {

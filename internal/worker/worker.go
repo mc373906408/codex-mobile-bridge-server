@@ -145,8 +145,17 @@ func (w *Worker) StepMail(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	var valid bool
-	if err = w.Store.Pool.QueryRow(ctx, `SELECT j.expires_at>clock_timestamp() AND a.verified IS NOT NULL AND NOT a.disabled
-		FROM mail_outbox j JOIN accounts a ON a.id=j.account_id WHERE j.id=$1 AND j.lease_id=$2 AND j.status='leased'`, jobID, id).Scan(&valid); err != nil {
+	err = w.Store.Pool.QueryRow(ctx, `SELECT j.expires_at>clock_timestamp() AND CASE WHEN j.purpose='register' THEN
+		c.id IS NOT NULL AND c.verified_at IS NULL AND c.expires_at>clock_timestamp()
+		AND NOT EXISTS(SELECT 1 FROM accounts existing WHERE existing.login=c.login)
+		ELSE a.id IS NOT NULL AND NOT a.disabled END
+		FROM mail_outbox j LEFT JOIN accounts a ON a.id=j.account_id
+		LEFT JOIN registration_challenges c ON c.id=j.registration_id
+		WHERE j.id=$1 AND j.lease_id=$2 AND j.status='leased'`, jobID, id).Scan(&valid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
 		return true, err
 	}
 	if !valid {

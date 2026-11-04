@@ -26,6 +26,7 @@ type Principal struct {
 	Account
 	SessionID string
 	CSRF      string
+	Web       bool
 }
 
 type Tokens struct {
@@ -88,19 +89,21 @@ func (s *Store) Bootstrap(ctx context.Context, login, password string) error {
 		if _, err = tx.Exec(ctx, "INSERT INTO accounts(id,login,password_hash,verified,administrator,credentials_change_required) VALUES($1,$2,$3,true,true,true)", id, login, hash); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, "INSERT INTO entitlements(account_id) VALUES($1)", id)
-		return err
+		if _, err = tx.Exec(ctx, "INSERT INTO entitlements(account_id) VALUES($1)", id); err != nil {
+			return err
+		}
+		return Audit(ctx, tx, id, "admin.bootstrap", id)
 	})
 }
 
-func (s *Store) CreateAccount(ctx context.Context, login, hash string, verified bool, c config.Config, actor string) (Account, error) {
+func (s *Store) CreateAccount(ctx context.Context, login, hash, actor string) (Account, error) {
 	id, err := security.ID()
 	if err != nil {
 		return Account{}, err
 	}
 	var a Account
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		row := tx.QueryRow(ctx, "INSERT INTO accounts(id,login,password_hash,verified) VALUES($1,$2,$3,$4) ON CONFLICT(login) DO NOTHING RETURNING "+accountColumns, id, login, hash, verified)
+		row := tx.QueryRow(ctx, "INSERT INTO accounts(id,login,password_hash,verified) VALUES($1,$2,$3,true) ON CONFLICT(login) DO NOTHING RETURNING "+accountColumns, id, login, hash)
 		a, err = scanAccount(row)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrConflict
@@ -112,14 +115,15 @@ func (s *Store) CreateAccount(ctx context.Context, login, hash string, verified 
 			return err
 		}
 		if actor != "" {
-			return Audit(ctx, tx, actor, "account.create", id)
+			return RecordAudit(ctx, tx, AuditEvent{ActorID: actor, AccountID: id, Action: "account.create", TargetID: id,
+				After: map[string]any{"verified": true, "disabled": false}})
 		}
-		return s.queueMail(ctx, tx, a, "verify", c)
+		return nil
 	})
 	return a, err
 }
 
-func (s *Store) queueMail(ctx context.Context, tx pgx.Tx, a Account, purpose string, c config.Config) error {
+func (s *Store) queuePasswordReset(ctx context.Context, tx pgx.Tx, a Account, c config.Config) error {
 	if !c.MailEnabled() {
 		return nil
 	}
@@ -131,15 +135,10 @@ func (s *Store) queueMail(ctx context.Context, tx pgx.Tx, a Account, purpose str
 	if err != nil {
 		return err
 	}
-	ttl := time.Hour
-	subject := "Verify your Bridge account"
-	if purpose == "reset" {
-		ttl = 30 * time.Minute
-		subject = "Reset your Bridge password"
-	}
+	ttl := 30 * time.Minute
 	// Only this encrypted outbox contains the bearer link; token rows contain digests.
-	message := MailMessage{To: a.Login, Subject: subject,
-		Body: c.Origin + "/" + purpose + "#token=" + token + "\r\n\r\nThis link expires. If you did not request it, ignore this message.\r\n"}
+	message := MailMessage{To: a.Login, Subject: "Reset your Bridge password",
+		Body: c.Origin + "/reset#token=" + token + "\r\n\r\nThis link expires. If you did not request it, ignore this message.\r\n"}
 	data, err := json.Marshal(message)
 	if err != nil {
 		return err
@@ -148,20 +147,20 @@ func (s *Store) queueMail(ctx context.Context, tx pgx.Tx, a Account, purpose str
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, "UPDATE email_tokens SET used_at=now() WHERE account_id=$1 AND purpose=$2 AND used_at IS NULL", a.ID, purpose); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE email_tokens SET used_at=now() WHERE account_id=$1 AND purpose='reset' AND used_at IS NULL", a.ID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, "INSERT INTO email_tokens(digest,account_id,purpose,expires_at) VALUES($1,$2,$3,now()+$4::interval)", security.Digest(token), a.ID, purpose, Interval(ttl)); err != nil {
+	if _, err = tx.Exec(ctx, "INSERT INTO email_tokens(digest,account_id,purpose,expires_at) VALUES($1,$2,'reset',now()+$3::interval)", security.Digest(token), a.ID, Interval(ttl)); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, "UPDATE mail_outbox SET status='cancelled' WHERE account_id=$1 AND purpose=$2 AND status IN ('queued','leased')", a.ID, purpose); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE mail_outbox SET status='cancelled' WHERE account_id=$1 AND purpose='reset' AND status IN ('queued','leased')", a.ID); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, "INSERT INTO mail_outbox(id,account_id,encrypted_message,purpose,expires_at) VALUES($1,$2,$3,$4,now()+$5::interval)", id, a.ID, sealed, purpose, Interval(ttl))
+	_, err = tx.Exec(ctx, "INSERT INTO mail_outbox(id,account_id,encrypted_message,purpose,expires_at) VALUES($1,$2,$3,'reset',now()+$4::interval)", id, a.ID, sealed, Interval(ttl))
 	return err
 }
 
-func (s *Store) RequestMail(ctx context.Context, login, purpose string, c config.Config) error {
+func (s *Store) RequestPasswordReset(ctx context.Context, login string, c config.Config) error {
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		a, err := scanAccount(tx.QueryRow(ctx, "SELECT "+accountColumns+" FROM accounts WHERE login=$1 FOR UPDATE", login))
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -170,17 +169,17 @@ func (s *Store) RequestMail(ctx context.Context, login, purpose string, c config
 		if err != nil {
 			return err
 		}
-		if a.Disabled || a.CredentialsChangeRequired || (purpose == "verify" && a.Verified) {
+		if a.Disabled || a.CredentialsChangeRequired || !a.Verified {
 			return nil
 		}
-		return s.queueMail(ctx, tx, a, purpose, c)
+		return s.queuePasswordReset(ctx, tx, a, c)
 	})
 }
 
-func (s *Store) ConsumeMailToken(ctx context.Context, token, purpose, passwordHash string) (string, error) {
+func (s *Store) ConsumePasswordResetToken(ctx context.Context, token, passwordHash string) (string, error) {
 	var accountID string
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, "SELECT account_id FROM email_tokens WHERE digest=$1 AND purpose=$2", security.Digest(token), purpose).Scan(&accountID); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT account_id FROM email_tokens WHERE digest=$1 AND purpose='reset'", security.Digest(token)).Scan(&accountID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrDenied
 			}
@@ -193,27 +192,25 @@ func (s *Store) ConsumeMailToken(ctx context.Context, token, purpose, passwordHa
 		if disabled {
 			return ErrDenied
 		}
-		tag, err := tx.Exec(ctx, "UPDATE email_tokens SET used_at=now() WHERE digest=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>now()", security.Digest(token), purpose)
+		tag, err := tx.Exec(ctx, "UPDATE email_tokens SET used_at=now() WHERE digest=$1 AND purpose='reset' AND used_at IS NULL AND expires_at>now()", security.Digest(token))
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() != 1 {
 			return ErrDenied
 		}
-		if purpose == "verify" {
-			_, err = tx.Exec(ctx, "UPDATE accounts SET verified=true WHERE id=$1", accountID)
-		} else {
-			_, err = tx.Exec(ctx, "UPDATE accounts SET password_hash=$2 WHERE id=$1", accountID, passwordHash)
-			if err != nil {
-				return err
-			}
-			_, err = tx.Exec(ctx, "UPDATE sessions SET revoked_at=now() WHERE account_id=$1 AND revoked_at IS NULL", accountID)
-		}
+		_, err = tx.Exec(ctx, "UPDATE accounts SET password_hash=$2 WHERE id=$1", accountID, passwordHash)
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, "UPDATE email_tokens SET used_at=now() WHERE account_id=$1 AND purpose=$2 AND used_at IS NULL", accountID, purpose)
-		return err
+		if err = RevokeAccountSessions(ctx, tx, Principal{Account: Account{ID: accountID}}, accountID, "password_reset"); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, "UPDATE email_tokens SET used_at=now() WHERE account_id=$1 AND purpose='reset' AND used_at IS NULL", accountID); err != nil {
+			return err
+		}
+		return RecordAudit(ctx, tx, AuditEvent{ActorID: accountID, AccountID: accountID, Action: "account.password_reset", TargetID: accountID,
+			After: map[string]any{"sessions_revoked": true}})
 	})
 	return accountID, err
 }
@@ -261,13 +258,17 @@ func (s *Store) NewSession(ctx context.Context, a Account, c config.Config, web 
 		_, err := tx.Exec(ctx, `INSERT INTO sessions(id,account_id,access_digest,refresh_digest,web_digest,csrf,access_expires_at,refresh_expires_at,web_expires_at)
 			VALUES($1,$2,$3,$4,$5,$6,now()+$7::interval,now()+$8::interval,$9)`,
 			id, a.ID, security.Digest(t.Access), security.Digest(t.Refresh), webDigest, t.CSRF, Interval(c.AccessTTL), Interval(c.RefreshTTL), webExpires)
-		return err
+		if err != nil {
+			return err
+		}
+		return RecordAudit(ctx, tx, AuditEvent{ActorID: a.ID, AccountID: a.ID, SessionID: id, Action: "session.create", TargetID: id,
+			After: map[string]any{"web": web, "revoked": false}})
 	})
 	return t, err
 }
 
 func (s *Store) Authenticate(ctx context.Context, token string, web bool) (Principal, error) {
-	var p Principal
+	p := Principal{Web: web}
 	column, expiry := "access_digest", "access_expires_at"
 	if web {
 		column, expiry = "web_digest", "web_expires_at"
@@ -298,8 +299,16 @@ func (s *Store) Refresh(ctx context.Context, token string, c config.Config) (Tok
 		err := tx.QueryRow(ctx, "SELECT id,account_id FROM sessions WHERE refresh_digest=$1 AND revoked_at IS NULL AND refresh_expires_at>now() FOR UPDATE", security.Digest(token)).Scan(&id, &accountID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			denied = true
-			_, err = tx.Exec(ctx, "UPDATE sessions SET revoked_at=now() WHERE id IN (SELECT session_id FROM spent_refresh_tokens WHERE digest=$1)", security.Digest(token))
-			return err
+			err = tx.QueryRow(ctx, `UPDATE sessions SET revoked_at=now() WHERE revoked_at IS NULL
+				AND id IN (SELECT session_id FROM spent_refresh_tokens WHERE digest=$1) RETURNING id,account_id`, security.Digest(token)).Scan(&id, &accountID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			return RecordAudit(ctx, tx, AuditEvent{AccountID: accountID, SessionID: id, Action: "session.reuse", TargetID: id,
+				Before: map[string]any{"revoked": false}, After: map[string]any{"revoked": true}})
 		}
 		if err != nil {
 			return err

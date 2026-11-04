@@ -42,6 +42,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Formatting, dependency verification and vet
         run: |
           files="$(gofmt -l cmd internal)"
@@ -54,6 +57,10 @@ jobs:
           mkdir -p .tmp
           go test -race -count=1 -v ./... | tee .tmp/go-test.log
           if grep -q -- '--- SKIP:' .tmp/go-test.log; then echo 'CI must not skip database tests'; exit 1; fi
+      - name: Administrator scoping, pagination, audit and code export UI regression
+        run: |
+          node --check internal/api/web/app.js
+          node --test scripts/tests/*.test.cjs
       - name: Public protocol vectors and deployment helpers
         run: |
           python -m pip install -r scripts/requirements-protocol.txt

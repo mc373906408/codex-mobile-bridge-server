@@ -1,5 +1,136 @@
 # Cloud relay implementation checkpoint
 
+For the current architecture, permission flows and reproduced gaps, see the
+[server architecture audit](../.agents/notes/implemented/architecture/2026-11-03-server-architecture-and-scope-audit.md).
+The dated checkpoints below retain their original verification scope.
+
+## Relay close isolation deployed on 2026-11-04
+
+The hosted instance now runs `bridge-server:relay-stability-1fd6a04962d31b61`
+with binary SHA256 `884e5430674b87d3165098089d75688fff21ac8f73654ce481b48cb736753c69`.
+Normal mobile request completion could retire a channel before the desktop
+worker's final Close reached the server; the old router treated that acknowledgement
+as an unauthorized route, disconnecting the shared gateway and every other phone.
+The regression reproduces that failure before the fix.
+
+Recently closed routes are remembered per gateway connection with a 128-entry,
+one-minute bound. Matching late frames are dropped, while unknown/mismatched or
+cross-gateway routes remain rejected. Phone channels cannot cross a gateway
+reconnect, and a slow phone no longer cancels its shared desktop connection.
+The 109-test PostgreSQL-backed Go suite, vet and module verification pass. Linux
+WebSocket verification on the deployment host passes 400 channel-close cycles
+while another channel keeps communicating. Windows race detection was not run.
+
+This update retains the current database, accounts, passwords, devices, bindings,
+credential mounts and HTTPS/database containers; it does not repeat the earlier
+fresh-database initialization. Public TLS/health checks pass and the desktop has
+reconnected. Phone/desktop reinstallation is unnecessary. See the
+for evidence and diagnostic limitations.
+
+## Current-schema deployment on 2026-11-04
+
+The hosted instance at `https://bridge.waken.cloudns.be:8787` now runs
+`bridge-server:current-aed977f0cef2e2fb`, built from the verified local working tree
+with Go 1.27.3 for Linux amd64. The running binary SHA256 is
+`3a6010aec363594527d5440c4549e25043d00b73c564b4ad983128f9e8666dda`.
+
+The fresh `bridge_current_20261104` database uses only `001_current.sql` and starts
+with `admin/admin`, restricted to mandatory initial setup. The deployment does not
+change this password on behalf of the operator. Previous development accounts and
+devices need registration/enrollment again. At the operator's explicit request,
+the old application database, ten old server images, historical release packages
+and old database backups are removed after the new service passes verification.
+No rollback backup is created. PostgreSQL and HTTPS containers, certificates and
+SMTP configuration continue in place.
+
+An isolated production-image smoke test covers default login, setup-only access,
+password change, fresh login, administrator search/paging and target-account routes,
+then restart without restoring default credentials. Its database/container are
+removed. Thirteen public checks pass before and after cleanup, covering trusted
+TLS/HSTS/readiness, capabilities/admin page, unauthenticated rejection, retired
+routes and exact static-asset hashes. No real email or push is sent; Umeng/APNs are
+not configured on this deployment. The [deployment decision](../.agents/notes/implemented/process/2026-11-04-current-schema-server-deployment.md)
+records the operational entry point, cleanup and evidence.
+
+## Administrator management and audit on 2026-11-04
+
+Default `admin/admin` first login and local `reset-admin` remain as explicitly
+requested. They grant only short-lived setup permission until a different strong
+password is saved and the administrator signs in again; startup never resets an
+existing administrator. The first-claim window remains a documented tradeoff.
+
+The console now searches all users on the server and pages through users, devices,
+bindings, sessions, codes, redemptions and audit. Selecting a user scopes its device
+and session panels; privileged revocation uses separate target-account routes,
+checks current administrator authority and ownership, closes affected sockets and
+cancels relevant queued/leased pushes. Ordinary client routes remain own-account.
+State-changing authorization events and audit entries commit or roll back together,
+with safe before/after metadata and no credentials. Directory polling and unchanged
+endpoint registration do not append duplicate audit events. Details and verification
+are recorded in the [management and audit decision](../.agents/notes/implemented/bug-fix/2026-11-04-admin-management-and-audit.md).
+
+## Current prerelease contracts on 2026-11-04
+
+The current source requires fresh development storage and supersedes the historical
+data-preservation and migration claims below. `001_current.sql` creates the current
+schema directly; retired migration histories are rejected. Manual cloud pairing
+routes/tables, old account-bound email verification and pending-account password
+activation are removed. Registration only creates an account after email proof
+and password completion. Desktop and mobile use the automatic directory and
+explicit desktop permission with independent encrypted proof.
+
+Push withdrawal checks the current phone and binding ownership independently of
+desktop access or entitlement. Closing and later restoring a connection does not
+restore withdrawn notification consent. The [current schema decision](../.agents/notes/implemented/simplification/2026-11-04-prerelease-account-and-binding-schema.md)
+record the local verification. No deployment, data reset on an existing installation,
+real email or vendor push occurs in this source cleanup.
+
+## Account directory and reversible permission on 2026-11-03
+
+- Phone login/enrollment discovers stable pending relationships with every
+  same-account desktop in either login order. Directory reads do not create
+  bindings or grant trust. Pending/offline devices remain visible.
+- `GET /v1/mobile/bindings` and the extended gateway directory return identity,
+  display name, status, online state and access revision. The desktop-only access
+  POST separates reversible `disabled` from permanent `revoked`; every close
+  advances the fence so late openings cannot override it. Close cancels only the
+  target socket and its queued/leased notification jobs, retaining independent consent.
+- Migration 007 preserves active identities, keys and revocation tombstones, and
+  fills only missing relationships. Updated clients require `account_directory_v1`
+  and `desktop_switch_v1`; no manual-request/QR fallback is added.
+- Desktop first approval still checks encrypted proof and safety codes. The
+  phone performs cancellable foreground sync independent of the page/chat lock,
+  and has read-only cloud device info rather than removal/withdrawal controls.
+- The authorized hosted deployment now runs
+  `bridge-server:account-directory-5b20bb6e0005edb8`. An authenticated encrypted
+  backup and private restore/migration/rollback-image rehearsal pass. Only the
+  server container changes; database/proxy identities, secrets and existing
+  account/device identity snapshots are preserved. The running binary matches the
+  verified release manifest, and public TLS/HSTS/readiness/capabilities and
+  unauthenticated directory rejection pass.
+- The first Compose attempt is rejected on an invalid null build field before
+  replacing any container. After read-only reconciliation, a separate validated
+  release/rollback overlay succeeds with a fresh encrypted backup. Original
+  backups and diagnostics remain on the host; production data is never restored
+  automatically.
+- Go verification has 106 passing PostgreSQL-backed test events. Coordinated
+  desktop/mobile regression and Android ARM64 debug build/install pass; the
+  installed APK checksum matches the verified artifact, with user data retained.
+  No real phone is approved automatically. Desktop controller/gateway reload
+  remains a manual operator action; real-device login/approval/push and signed iOS
+  acceptance are not claimed.
+
+## Desktop-approved pairing on 2026-11-03
+
+This follow-up is source-only and is not deployed by these edits. Phone requests
+replace cloud QR invitations and have no expiry. The computer requires encrypted
+proof, matching safety codes and an explicit per-device approval switch; account
+membership cannot authorize a phone. Desktop/Flutter/Rust/Go consumers change
+together. Migration 006 preserves active identity, rejects old pending QR records
+and prevents time-based session cleanup from deleting retained devices. Existing
+direct QR login, E2EE, entitlement, CSRF, owner and notification-consent rules stay
+independent. A production update requires backup/rehearsal and coordinated clients.
+
 The 2026-10-30 checkpoint was local-only and did not authorize a commit, push,
 deployment or production credential access. The later server-only deployment
 below was explicitly requested by the operator. The private operations
@@ -9,6 +140,83 @@ by this update.
 The historical cross-repository checks describe the local worktrees on 2026-10-30, not a
 published revision, successful hosted CI run, signed distribution, or device
 delivery result. Existing unrelated work is preserved.
+
+## Sixteen-character redemption codes on 2026-11-02
+
+- New codes encode ten bytes from `crypto/rand` as 16 uppercase Base32 characters
+  (`A-Z`, `2-7`), with no fixed prefix, time component or truncated UUID. All
+  80 random bits are retained. Shorter codes improve usability; they do not have
+  more entropy than the previous 192-bit codes or a full UUID.
+- Record IDs remain UUIDs. Existing 39-character codes, their digests and redeemed
+  entitlements are unchanged. Both formats use the same single-use, revocation,
+  normalization and idempotency rules; no schema migration was added or changed.
+- Hosted capabilities report `redemption_code_length: 16`; selfhost reports zero
+  and keeps official redemption disabled. The website accepts both generation
+  formats during rollout and still copies actual codes, not record IDs.
+- Local verification passes: 90 Go test events with no skipped test, including
+  fresh PostgreSQL-backed code/compatibility/concurrency tests and persisted
+  account/IP redemption limits; `go vet`, module verification and formatting;
+  four Node production-UI tests with mocked DOM/clipboard/network; nine deployment
+  helper tests. No browser window or native desktop input was automated. Race
+  detector, remote CI and real-device acceptance are not claimed.
+- The hosted backend now runs `bridge-server:redemption16-3b7b1e4dc62c4e0c` after
+  an on-host authenticated encrypted backup and private restore/migration/rollback
+  rehearsal. Only the backend was recreated; database/proxy identities and all
+  existing credential/certificate files stayed unchanged. Public TLS, HSTS,
+  readiness and generation-length capabilities pass. No production code was
+  generated, redeemed or revoked for verification; no account, email or push test
+  was submitted. Existing website tabs require a manual refresh before generating
+  a new batch so their old 39-character-only UI validator is replaced.
+
+## Email-first registration on 2026-11-02
+
+- This correction is local-only: no commit, deployment, real account creation or
+  SMTP delivery. The previously deployed instance is not updated by these edits.
+- The desktop registration form puts email, code entry and **Get code** together.
+  Password fields appear only after successful email verification; account creation
+  happens only after the second password/confirmation step. Success returns to
+  sign-in without enabling relay or granting device authority.
+- `registration-code` creates an account-independent challenge;
+  `registration-verify` exchanges a code for a ten-minute single-use proof;
+  `register` requires that proof and a password. Codes and proofs are scoped to
+  exact server/email, resends invalidate both, and failed code guesses persist.
+- Migration 005 preserves accounts, reset mail and device records, and gives
+  pre-account signup mail a validated challenge owner. The worker checks that
+  owner and cancels stale deliveries. Legacy unverified signups can finish with
+  fresh proof and a new password; requesting/verifying the new code does not
+  activate their old password. Old password-first clients fail closed.
+- Local checks pass: 78 Go test events with no skipped test, including isolated
+  PostgreSQL 18.1 migration/concurrency tests, and `go vet`; 28 Python cloud tests;
+  1,326 Node tests; 58 installed Edge wide/narrow browser cases. Registration
+  screenshots are visually inspected. WebKit, race-detector and signed-device
+  acceptance are not claimed.
+- The desktop repository still has the pre-existing upward import in
+  `cloud_connector.py:416`; this registration-only change does not alter it or
+  add a boundary exception. A running controller needs restarting to load the
+  new IPC/Python modules; actual signup also requires deploying the server update.
+
+## Email verification codes on 2026-11-01
+
+- This follow-up is local-only: no commit, deployment, real signup or email send.
+  It does not update the previously deployed instance described below.
+- Hosted registration/resend now issue six-digit email codes only. The old
+  `/verify` page, `/v1/auth/verify` endpoint and their email-link UI are removed.
+  Password-reset links remain separate; administrator and device authority rules
+  are unchanged.
+- Migration 004 removes legacy verification tokens/mail and preserves verified
+  accounts and password-reset state. New code rows use account-scoped HMAC
+  digests, ten-minute expiry, single-use consumption and five committed failed
+  attempts. Durable signup/resend limits and pending-password/code replacement
+  prevent unrestricted retries and stale pending-signup activation.
+- Go tests pass with 68 test events, including subtests, against a fresh isolated
+  PostgreSQL 18.1 Windows cluster; no database-dependent test is skipped. Legacy
+  routes, migration, reset, expiry, resend, attempt exhaustion, concurrency and
+  account isolation are covered. SMTP MIME encoding has a local round-trip test,
+  not a live delivery test.
+- Desktop checks pass: 27 Python cloud tests, 1,325 Node tests and 46 installed
+  Edge wide/narrow browser cases. Registration/code-entry screenshots are visually
+  inspected. No WebKit, mobile-device or race-detector acceptance is claimed.
+- Old verification-link clients must be updated; there is no link fallback.
 
 ## Administrator console and HTTPS update on 2026-10-31
 
@@ -143,8 +351,8 @@ no administrator reset, real email or vendor push was performed.
   implemented; the mobile app currently has no purchase/redemption UI.
 - An exact canonical HTTPS origin and account ID scope all stored credentials.
 - Control uses Noise KK; preview uses separate keys and single-message Noise K.
-- A five-minute QR, key confirmation, encrypted proof, and explicit local
-  approval are all required. Cloud account membership is not desktop approval.
+- Stable same-account discovery, key confirmation, encrypted proof, and explicit
+  local desktop permission are required. Cloud account membership is not trust.
 - Records are bounded to 32 KiB; unknown writes are never automatically replayed.
 - Preview plaintext is at most 1 KiB; full APNs JSON is at most 4 KiB. Invalid or
   unavailable previews permit only fixed generic local text or suppression.

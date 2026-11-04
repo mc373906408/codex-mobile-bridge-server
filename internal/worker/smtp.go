@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"io"
+	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -68,7 +71,7 @@ func (s SMTP) Send(ctx context.Context, message store.MailMessage) error {
 	if err != nil {
 		return errors.New("SMTP unavailable")
 	}
-	_, err = writer.Write([]byte("From: " + from.String() + "\r\nTo: " + to.String() + "\r\nSubject: " + message.Subject + "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" + message.Body))
+	err = writeSMTPMessage(writer, from, to, message)
 	if err != nil {
 		return errors.New("SMTP send failed")
 	}
@@ -76,4 +79,17 @@ func (s SMTP) Send(ctx context.Context, message store.MailMessage) error {
 		return errors.New("SMTP send result unknown")
 	}
 	return client.Quit()
+}
+
+func writeSMTPMessage(writer io.Writer, from, to *mail.Address, message store.MailMessage) error {
+	_, err := io.WriteString(writer, "From: "+from.String()+"\r\nTo: "+to.String()+"\r\nSubject: "+mime.QEncoding.Encode("utf-8", message.Subject)+
+		"\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
+	if err != nil {
+		return err
+	}
+	body := quotedprintable.NewWriter(writer)
+	if _, err = body.Write([]byte(message.Body)); err != nil {
+		return err
+	}
+	return body.Close()
 }

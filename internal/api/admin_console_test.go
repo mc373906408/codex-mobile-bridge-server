@@ -96,7 +96,7 @@ func TestAdministratorConsoleSeparatesHomeAndClientRedemption(t *testing.T) {
 					t.Fatal("administrator generation must return a private one-time export")
 				}
 				for _, code := range result.Codes {
-					if len(code.Code) != 39 || code.Days != 7 {
+					if len(code.Code) != security.RedemptionCodeLength || code.Days != 7 {
 						t.Fatal("generated code shape is invalid")
 					}
 				}
@@ -108,6 +108,8 @@ func TestAdministratorConsoleSeparatesHomeAndClientRedemption(t *testing.T) {
 					}
 				}
 				expectStatus(t, webRequest(t, a, "GET", "/v1/admin/codes", nil, bearer), 403, "access_denied")
+				input["code"] = result.Codes[0].ID
+				expectStatus(t, webRequest(t, a, "POST", "/v1/account/redeem", input, bearer), 400, "invalid_redemption")
 				input["code"] = result.Codes[0].Code
 				expectStatus(t, webRequest(t, a, "POST", "/v1/account/redeem", input, bearer), 200, "")
 				expectStatus(t, webRequest(t, a, "DELETE", "/v1/admin/codes/"+result.Codes[0].ID, nil, csrfHeaders(a, tokens.CSRF), cookie), 409, "state_conflict")

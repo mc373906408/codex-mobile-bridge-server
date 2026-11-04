@@ -5,6 +5,9 @@ Code and isolated Go/PostgreSQL tests do not establish SMTP delivery or real-dev
 push acceptance. Actual checks and remaining release gates are recorded in
 [implementation status](implementation-status.md).
 
+System responsibilities, permission flows and known gaps are recorded in the
+[server architecture audit](../.agents/notes/implemented/architecture/2026-11-03-server-architecture-and-scope-audit.md).
+
 Commands in this document target **Linux with Docker Engine and Compose v2**.
 Docker, Caddy/ACME, filesystem mounts and recovery still require a rehearsal on
 the intended host. Do not apply these commands to an existing deployment without
@@ -75,8 +78,9 @@ licensing server. If SMTP is absent, do not promise email password recovery.
 Both modes use the same independent administrator username login. Administrators
 do not require an email address. The website is administrator-only; ordinary
 users use client APIs. Hosted ordinary users still register with email, verify
-ownership and pass server-controlled service-day checks. Email verification and
-reset links remain public security pages, not console login authority.
+ownership with six-digit email codes and pass server-controlled service-day
+checks. Only password-reset links remain public security pages; neither email
+verification nor password reset grants console login authority.
 
 For a fresh hosted installation:
 
@@ -96,8 +100,52 @@ docker compose -f compose.yaml -f deploy/compose.hosted.yaml up -d --build --wai
 
 SMTP must use verified `starttls` or `implicit` TLS. Hosted startup fails when
 SMTP configuration is missing; do not disable certificate verification or switch
-production to selfhost to bypass this requirement. Actual verification/reset
+production to selfhost to bypass this requirement. Actual verification-code/reset
 mail delivery is a separate acceptance test.
+
+### Email verification codes
+
+Hosted registration verifies the email first, then accepts a new password.
+Capabilities advertise `registration_flow: "email_code_password"`; updated clients
+must refuse the old password-first flow rather than falling back silently.
+
+1. `POST /v1/auth/registration-code` with only `login` queues an encrypted email
+   containing a six-digit code. Its accepted receipt includes
+   `verification_method: "code"`, `expires_in: 600` and `retry_after: 60`.
+   Neither this step nor verification creates an account or stores a password.
+2. `POST /v1/auth/registration-verify` with `login` and `code` verifies ownership. Codes
+   are single-use, expire after ten minutes and allow at most five failed
+   attempts. Success returns `verified: true`, a random `registration_token` and
+   `expires_in: 600`, not login or device credentials.
+3. `POST /v1/auth/register` with `login`, `registration_token` and `password`
+   consumes the proof atomically and creates a verified ordinary account.
+   It returns HTTP 201 with `registered: true`, without signing in, granting
+   service days or authorizing a phone. Missing, expired, spent or differently
+   scoped proof is rejected; the email must be verified again.
+
+Resend uses `registration-code` again, with persistent rate limits: a sixty-second
+email cooldown and at most three attempts
+per email/hour, with additional IP limits. Resending invalidates the previous code
+and any password-stage proof, and cancels stale queued or leased mail. Proof stays
+only in client memory, is bound to the exact server origin and email, and cannot
+be replayed. An unknown completion outcome requires checking login/password
+recovery, not automatically resubmitting registration.
+
+Accepted signup/resend receipts do not disclose account existence or confirm
+delivery. Code rows contain challenge/server/email-scoped HMAC digests, not plaintext
+or an unkeyed digest of a guessable six-digit value; proof rows contain token
+digests only. Existing accounts, including unverified or disabled records, are never overwritten.
+SMTP subjects and bodies use MIME encoding for Chinese/English content.
+
+Verification links, `POST /v1/auth/verify`, `GET /verify`, and the old
+`/v1/auth/verification` and `/v1/auth/verify-code` endpoints are removed.
+Registration never precreates an account or activates a previously stored password.
+The old account-bound verification-code table and its mail path are absent from
+the current schema. There is no verification-link or old-account activation fallback.
+Password recovery still uses `/reset#token=...` and `/v1/auth/reset` separately.
+
+The desktop code-entry flow uses the three current registration endpoints.
+This source change performs no real email delivery or deployment.
 
 Remote push is disabled by default in both modes. Add a private operator overlay
 only after consent, server identity, client signing and device acceptance are
@@ -116,6 +164,40 @@ provider HTTP response is not evidence of notification display, correct preview,
 tap routing or receipt persistence on a device.
 
 ## 3. Start and observe
+
+### Same-account discovery and desktop permission
+
+Cloud login/enrollment automatically discovers every desktop on the same server
+and account, regardless of login order. The phone has no pairing-request button
+or computer-selection step. `GET /v1/mobile/bindings` and the gateway directory
+show existing relationships; directory reads neither create bindings nor grant
+authority. Offline, pending and disabled devices remain visible.
+
+The first connection still requires the desktop to verify encrypted device proof
+and matching safety codes, then explicitly enable the device's default-off
+**Allow Connection** switch. Discovery never opens an approval dialog by itself.
+Closing the switch immediately fences the target phone and cancels its queued or
+leased notification jobs, but preserves verified keys and independent push
+consent. Reopening needs no new phone request. Permanent revocations never revive;
+cloud devices have no phone-side delete, swipe or withdrawal control. Account,
+entitlement and device-session checks remain mandatory before relay access.
+
+Use desktop/mobile together with this server. Capabilities report
+`pairing_method: desktop_approval`, `device_discovery: account_directory_v1` and
+`binding_access: desktop_switch_v1`; there is no manual-request/QR fallback in the
+updated clients. This prerelease baseline initializes a fresh database using
+`001_current.sql`, including reversible `disabled`, access revisions and the
+current registration and mail ownership constraints. Old development migration
+histories are rejected; there is no upgrade adapter or automatic database reset.
+Create a separate empty development database and reenroll test clients with the
+current sources. The current close/restore and permanent-revocation rules still
+retain identities created by this version. Restart the desktop controller and
+gateway to load the updated local IPC and permission modules.
+
+An authenticated phone can withdraw its push endpoint after a binding is closed,
+the desktop logs out or service days expire. The server checks the caller and
+binding ownership, sets consent/enabled false and cancels queued/leased jobs.
+Enabling push continues to require active access, valid sessions and entitlement.
 
 For the ordinary selfhost stack:
 
@@ -145,14 +227,55 @@ pre-upgrade website cookies; their client bearer login remains independent.
 The public `/` homepage and authenticated `/admin` console use separate layouts.
 The console uses the available screen width, a dedicated navigation rail and
 responsive data tables; it is not a small panel inside the homepage. Runtime
-metrics describe server-wide live connections. The device and session sections
-are explicitly scoped to the signed-in administrator, not every user's devices.
-User and audit tables show the latest 200 records, with local user filtering.
+metrics describe server-wide live connections. Search the Accounts list by login
+or account ID, then select **Manage devices and sessions** for the target user.
+The device and session sections display that selected account explicitly and show
+its desktops, phone installations, bindings and login sessions. Administrators can
+revoke each resource; they cannot approve a device or recover its encryption keys.
+Target account and resource ownership are checked together, and revoking a device
+also revokes its bindings and cancels queued/leased notifications. Session or
+resource revocation closes the corresponding online connections after commit.
+
+User search runs on the server. All console lists use **Load more** with stable
+cursors (50 rows by default, at most 200 per request), including devices, bindings,
+sessions, codes, redemptions and audit. Query/cursor scope is bound to the selected
+account and search; an old response cannot replace a newly selected account.
+Only these administrator GET lists accept query parameters; ordinary client APIs
+and WebSockets continue to reject query credentials or arbitrary query strings.
+
+The administrator resource APIs are `/v1/admin/users/{account}/devices?role=gateway`
+or `role=mobile`, `/bindings`, and `/sessions`. DELETE targets the same account's
+`/gateways/{id}`, `/installations/{id}`, `/bindings/{id}` or `/sessions/{id}`.
+Web writes require same-origin CSRF. Ordinary self-service routes retain their
+own-account boundary, and mutations recheck the administrator's current role and
+session before changing another account.
+
+Audit rows retain actor, affected account, device/session, target and before/after
+state for enrollment, discovery, access switches, revocations, session lifecycle,
+notification consent and administrative changes. Auditing shares the mutation's
+transaction: failure rolls back the change. No-op directory reads and unchanged
+endpoint registration do not append events. Credentials, keys, email bodies and
+conversation content are never audit fields; identity UUIDs survive deletion for
+traceability. Cleanup failures emit a structured error and retry next minute.
 Hosted administrators can generate and manage codes in a separate console
-section. Each batch supports 1-100 codes and 1-3650 service days per code. The
-server returns plaintext only at generation; save the private CSV before leaving
-the page or generating another batch. If automatic download is blocked, use the
-visible download link for that batch. The latest-200 code list contains metadata
+section. Each batch supports 1-100 codes and 1-3650 service days per code. New
+codes use 16 Base32 characters (`A-Z`, `2-7`), encoding 10 independent bytes from
+`crypto/rand` without truncation, UUID metadata, timestamps or a fixed prefix.
+This provides 80 bits of randomness, not the 128-bit format of a standard UUID.
+Shorter codes are a usability choice, not stronger than the previous 192-bit
+codes. Existing 39-character codes and their SHA-256 digests remain redeemable;
+no database migration or code replacement is required. Redemption remains
+authenticated, single-use and rate-limited to 10 requests/account/hour and
+40 requests/IP/hour. Hosted `/v1/capabilities` reports
+`redemption_code_length: 16`; selfhost reports zero and keeps redemption disabled. The
+server returns plaintext only at generation. The console displays each actual
+redemption code with a copy button, and also shows the current batch in the
+paged record list. Record IDs are separate, collapsed metadata and cannot be
+redeemed. Only the latest batch stays in page memory; leaving, signing out or
+generating another batch clears its plaintext. Save the private CSV before then.
+If automatic download is blocked, use the visible download link for that batch.
+Earlier records clearly explain that their plaintext was not retained; copy the
+original CSV's `code` column, not its `id` column. The list API returns metadata
 only; used/revoked codes cannot be exported again. Unused codes can be revoked,
 and client redemption history is read-only. After an uncertain network failure,
 inspect the metadata list before resubmitting to avoid unintentionally generating

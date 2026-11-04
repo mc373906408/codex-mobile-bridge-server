@@ -8,7 +8,7 @@
 | 模式 | 适合谁 | 账号方式 |
 | --- | --- | --- |
 | `selfhost` | 自己或小团队使用，推荐从这里开始 | 管理员创建用户名和密码，不检查托管服务天数 |
-| `hosted` | 向用户提供托管服务 | 邮箱注册和验证、服务天数兑换，需要配置 SMTP |
+| `hosted` | 向用户提供托管服务 | 先验证邮箱验证码，再设置密码注册；支持服务天数兑换，需要配置 SMTP |
 
 两种模式使用同一套服务。第三方推送默认关闭，配置好对应凭据和客户端后再启用。
 
@@ -20,15 +20,17 @@
 ```sh
 git clone https://github.com/mc373906408/codex-mobile-bridge-server.git
 cd codex-mobile-bridge-server
-python3 -B scripts/init_deployment.py --domain relay.example.com --admin-login operator
+python3 -B scripts/init_deployment.py --domain relay.example.com
 docker compose up -d --build --wait
 ```
 
-1. 打开 `https://relay.example.com/admin`，使用管理员账号 `operator` 登录。
-2. 初始密码由脚本随机生成，保存在 `.local/secrets/admin_password`，请在服务器本地读取并妥善保管。
-3. 自部署模式下，在后台创建用户，再让桌面端和 App 使用同一服务器地址登录、配对。
+1. 打开 `https://relay.example.com/admin`，使用 `admin/admin` 首次登录。
+2. 先修改为新的强密码并重新登录，再进入管理台。也可在初始化时使用 `--admin-login operator`，由脚本生成独立初始密码并保存到 `.local/secrets/admin_password`。
+3. 自部署模式下，在后台创建用户，再让桌面端和 App 使用同一服务器地址登录。
 
 首次登录需修改管理员密码。后台只允许管理员登录，普通用户通过客户端使用服务。
+
+管理台支持搜索和分页浏览全部用户，在用户行选择“管理设备与会话”后查看其桌面、手机、绑定及登录记录，并逐项撤销。设备批准仍在桌面完成；管理操作和授权变更的审计包含受影响账号与前后状态。
 
 初始化脚本不会覆盖已有配置。升级或恢复时不要重新初始化，先按[部署文档](docs/deployment.md)备份。
 
@@ -57,5 +59,6 @@ Android/iOS 云推送是可选功能，需要匹配的服务端凭据、客户�
 
 - [部署、邮件配置与备份恢复](docs/deployment.md)
 - [实现状态与验证范围](docs/implementation-status.md)
+- [全局架构、授权逻辑与范围审查](.agents/notes/implemented/architecture/2026-11-03-server-architecture-and-scope-audit.md)
 
 许可证：[MIT](LICENSE)。

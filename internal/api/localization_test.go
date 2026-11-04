@@ -68,7 +68,7 @@ func TestLocalesCoverTemplateAndHaveMatchingPlaceholders(t *testing.T) {
 			"Account": store.Account{ID: "template-admin", Login: "operator"}}); err != nil {
 			t.Fatal("translated management template failed", err)
 		}
-		for _, fragment := range []string{`data-admin="true"`, `class="admin-nav"`, `id="users"`, `id="audit"`, `id="codes"`, `id="code-list"`, text["overview_heading"], text["codes_heading"]} {
+		for _, fragment := range []string{`data-admin="true"`, `class="admin-nav"`, `id="users"`, `id="audit"`, `id="codes"`, `id="code-list"`, `id="generated-code-list"`, text["overview_heading"], text["codes_heading"], `<th scope="col">` + text["code_column"] + `</th>`} {
 			if !strings.Contains(output.String(), fragment) {
 				t.Fatal("translated management template is incomplete", fragment, language)
 			}

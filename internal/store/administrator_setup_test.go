@@ -54,15 +54,12 @@ func TestAdministratorResetPreservesAccountKeysAndBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pairing, err := s.NewPairing(ctx, g)
-	if err != nil {
-		t.Fatal(err)
+	bindings, err := s.DeviceBindings(ctx, m)
+	if err != nil || len(bindings) != 1 {
+		t.Fatal("administrator devices were not discovered", err)
 	}
-	b, err := s.JoinPairing(ctx, pairing.ID, m)
+	b, err := s.SetBindingAccess(ctx, bindings[0].ID, g, m.PublicKey, true, bindings[0].AccessRevision, false)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.ApproveBinding(ctx, b.ID, g, m.PublicKey); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.ResetAdministrator(ctx); err != nil {

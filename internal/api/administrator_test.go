@@ -213,9 +213,8 @@ func TestOrdinaryUsersCannotLoginOrReuseWebsiteSessions(t *testing.T) {
 			expectStatus(t, webRequest(t, a, "GET", "/v1/account", nil, nil, cookie), 401, "authentication_required")
 			expectStatus(t, webRequest(t, a, "GET", "/v1/admin/users", nil, nil, cookie), 401, "authentication_required")
 			expectStatus(t, webRequest(t, a, "GET", "/v1/account", nil, bearer), 200, "")
-			for _, path := range []string{"/verify", "/reset"} {
-				expectStatus(t, webRequest(t, a, "GET", path, nil, nil), 200, "")
-			}
+			expectStatus(t, webRequest(t, a, "GET", "/verify", nil, nil), 404, "")
+			expectStatus(t, webRequest(t, a, "GET", "/reset", nil, nil), 200, "")
 		})
 	}
 }
@@ -262,31 +261,20 @@ func TestHostedEmailRegistrationAndVerificationStayClientOnly(t *testing.T) {
 	}
 	t.Cleanup(a.Hub.Shutdown)
 	credentials := map[string]string{"login": "client@example.test", "password": "client-test-password-123"}
-	expectStatus(t, webRequest(t, a, "POST", "/v1/auth/register", credentials, nil), 202, "")
-	account, err := s.AccountByLogin(ctx, credentials["login"])
-	if err != nil || account.Verified || account.Administrator {
-		t.Fatal("email registration must create an unverified ordinary account", err)
-	}
+	expectStatus(t, webRequest(t, a, "POST", "/v1/auth/registration-code", map[string]string{"login": credentials["login"]}, nil), 202, "")
 	expectStatus(t, webRequest(t, a, "POST", "/v1/auth/login", credentials, nil), 401, "invalid_credentials")
-	var mailID string
-	var encrypted []byte
-	if err = s.Pool.QueryRow(ctx, "SELECT id,encrypted_message FROM mail_outbox WHERE account_id=$1 AND purpose='verify'", account.ID).Scan(&mailID, &encrypted); err != nil {
+	code := testutil.RegistrationCode(t, s, credentials["login"])
+	verification := webRequest(t, a, "POST", "/v1/auth/registration-verify", map[string]string{"login": credentials["login"], "code": code}, nil)
+	expectStatus(t, verification, 200, "")
+	var proof store.RegistrationProof
+	if err = json.Unmarshal(verification.Body.Bytes(), &proof); err != nil {
 		t.Fatal(err)
 	}
-	data, err := s.Vault.Open("mail:"+mailID, encrypted)
-	if err != nil {
-		t.Fatal(err)
+	expectStatus(t, webRequest(t, a, "POST", "/v1/auth/register", map[string]string{"login": credentials["login"], "password": credentials["password"], "registration_token": proof.Token}, nil), 201, "")
+	account, err := s.AccountByLogin(ctx, credentials["login"])
+	if err != nil || !account.Verified || account.Administrator {
+		t.Fatal("email proof and password must create a verified ordinary account", err)
 	}
-	var mail store.MailMessage
-	if err = json.Unmarshal(data, &mail); err != nil {
-		t.Fatal(err)
-	}
-	parts := strings.SplitN(mail.Body, "#token=", 2)
-	if len(parts) != 2 {
-		t.Fatal("verification email must contain a one-time fragment link")
-	}
-	token := strings.SplitN(parts[1], "\r\n", 2)[0]
-	expectStatus(t, webRequest(t, a, "POST", "/v1/auth/verify", map[string]string{"token": token}, nil), 200, "")
 	w := webRequest(t, a, "POST", "/v1/auth/login", credentials, nil)
 	expectStatus(t, w, 200, "")
 	var tokens store.Tokens

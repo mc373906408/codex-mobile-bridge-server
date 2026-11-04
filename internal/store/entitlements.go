@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/base32"
 	"errors"
 	"strings"
 	"time"
@@ -107,6 +106,10 @@ func (s *Store) Redeem(ctx context.Context, accountID, code, requestID string) (
 			if err = tx.QueryRow(ctx, "INSERT INTO redemptions(id,account_id,code_id,days,expires_at) VALUES($1,$2,$3,$4,$5) RETURNING created_at", result.ID, accountID, codeID, result.Days, result.ExpiresAt).Scan(&result.CreatedAt); err != nil {
 				return err
 			}
+			if err = RecordAudit(ctx, tx, AuditEvent{ActorID: accountID, AccountID: accountID, Action: "entitlement.redeem", TargetID: result.ID,
+				Before: map[string]any{"expires_at": current}, After: map[string]any{"expires_at": result.ExpiresAt, "days": result.Days}}); err != nil {
+				return err
+			}
 		}
 		_, err = tx.Exec(ctx, "INSERT INTO redeem_requests(account_id,request_id,code_digest,redemption_id) VALUES($1,$2,$3,$4)", accountID, requestID, digest, result.ID)
 		return err
@@ -135,17 +138,17 @@ func (s *Store) GenerateCodes(ctx context.Context, actor string, days, count int
 			if err != nil {
 				return err
 			}
-			bytes, err := security.Random(24)
+			code, err := security.NewRedemptionCode()
 			if err != nil {
 				return err
 			}
-			code := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(bytes)
 			if _, err = tx.Exec(ctx, "INSERT INTO redemption_codes(id,digest,days) VALUES($1,$2,$3)", id, CodeDigest(code), days); err != nil {
 				return err
 			}
 			result = append(result, GeneratedCode{ID: id, Code: code, Days: days})
 		}
-		return Audit(ctx, tx, actor, "codes.generate", "")
+		return RecordAudit(ctx, tx, AuditEvent{ActorID: actor, AccountID: actor, Action: "codes.generate",
+			After: map[string]any{"count": count, "days": days}})
 	})
 	return result, err
 }

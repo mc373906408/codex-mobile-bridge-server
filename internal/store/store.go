@@ -59,6 +59,17 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return err
 		}
 		sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
+		names := make([]string, 0, len(files))
+		for _, file := range files {
+			names = append(names, file.Name())
+		}
+		var unsupported bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE NOT (name=ANY($1::text[])))", names).Scan(&unsupported); err != nil {
+			return err
+		}
+		if unsupported {
+			return errors.New("unsupported development database schema; initialize an empty database with the current schema")
+		}
 		for _, file := range files {
 			var exists bool
 			if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE name=$1)", file.Name()).Scan(&exists); err != nil {
@@ -83,10 +94,5 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func Audit(ctx context.Context, tx pgx.Tx, actor, action, target string) error {
-	var targetID any
-	if target != "" {
-		targetID = target
-	}
-	_, err := tx.Exec(ctx, "INSERT INTO audit_log(actor_id,action,target_id) VALUES($1,$2,$3)", actor, action, targetID)
-	return err
+	return RecordAudit(ctx, tx, AuditEvent{ActorID: actor, AccountID: actor, Action: action, TargetID: target})
 }

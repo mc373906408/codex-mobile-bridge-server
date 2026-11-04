@@ -99,7 +99,8 @@ func (s *Store) FinishAdministratorSetup(ctx context.Context, token, login, pass
 		if err := invalidateAdministratorCredentials(ctx, tx, accountID); err != nil {
 			return err
 		}
-		return Audit(ctx, tx, accountID, "admin.credentials_change", accountID)
+		return RecordAudit(ctx, tx, AuditEvent{ActorID: accountID, AccountID: accountID, Action: "admin.credentials_change", TargetID: accountID,
+			Before: map[string]any{"credentials_change_required": true}, After: map[string]any{"credentials_change_required": false}})
 	})
 	var conflict *pgconn.PgError
 	if errors.As(err, &conflict) && conflict.Code == "23505" {
@@ -145,13 +146,16 @@ func (s *Store) ResetAdministrator(ctx context.Context) error {
 		if err = invalidateAdministratorCredentials(ctx, tx, id); err != nil {
 			return err
 		}
-		return Audit(ctx, tx, id, "admin.bootstrap_reset", id)
+		return RecordAudit(ctx, tx, AuditEvent{AccountID: id, Action: "admin.bootstrap_reset", TargetID: id,
+			After: map[string]any{"credentials_change_required": true, "disabled": false}})
 	})
 }
 
 func invalidateAdministratorCredentials(ctx context.Context, tx pgx.Tx, accountID string) error {
+	if err := RevokeAccountSessions(ctx, tx, Principal{}, accountID, "administrator_credentials_change"); err != nil {
+		return err
+	}
 	for _, query := range []string{
-		"UPDATE sessions SET revoked_at=now() WHERE account_id=$1 AND revoked_at IS NULL",
 		"DELETE FROM administrator_setup_sessions WHERE account_id=$1",
 		"UPDATE email_tokens SET used_at=now() WHERE account_id=$1 AND used_at IS NULL",
 		"UPDATE mail_outbox SET status='cancelled' WHERE account_id=$1 AND status IN ('queued','leased')",

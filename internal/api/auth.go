@@ -15,8 +15,9 @@ func (a *Server) register(w http.ResponseWriter, r *http.Request) error {
 		return failure{404, "registration_disabled"}
 	}
 	var in struct {
-		Login    string `json:"login"`
-		Password string `json:"password"`
+		Login             string `json:"login"`
+		Password          string `json:"password"`
+		RegistrationToken string `json:"registration_token"`
 	}
 	if err := body(w, r, &in); err != nil {
 		return err
@@ -25,6 +26,9 @@ func (a *Server) register(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if len(in.RegistrationToken) != 43 {
+		return bad("invalid_registration_token")
+	}
 	if err = a.limit(r, "register", login, 3, time.Hour); err != nil {
 		return err
 	}
@@ -32,11 +36,15 @@ func (a *Server) register(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return bad("invalid_password")
 	}
-	_, err = a.Store.CreateAccount(r.Context(), login, hash, false, a.Config, "")
-	if err != nil && !errors.Is(err, store.ErrConflict) {
+	account, err := a.Store.CompleteRegistration(r.Context(), login, in.RegistrationToken, hash, a.Config)
+	if errors.Is(err, store.ErrDenied) {
+		return bad("invalid_registration_token")
+	}
+	if err != nil {
 		return err
 	}
-	writeJSON(w, 202, map[string]bool{"accepted": true})
+	a.Hub.CloseAccount(account.ID)
+	writeJSON(w, 201, map[string]bool{"registered": true})
 	return nil
 }
 
@@ -94,7 +102,7 @@ func (a *Server) logout(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	_, err = a.Store.Pool.Exec(r.Context(), "UPDATE sessions SET revoked_at=now() WHERE id=$1", p.SessionID)
+	err = a.Store.RevokeResource(r.Context(), p, p.ID, "session", p.SessionID)
 	if err != nil {
 		return err
 	}
@@ -104,7 +112,7 @@ func (a *Server) logout(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (a *Server) requestMail(w http.ResponseWriter, r *http.Request, purpose string) error {
+func (a *Server) forgot(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		Login string `json:"login"`
 	}
@@ -116,41 +124,11 @@ func (a *Server) requestMail(w http.ResponseWriter, r *http.Request, purpose str
 		return err
 	}
 	if a.Config.Paid() && normalizeErr == nil {
-		if err := a.Store.RequestMail(r.Context(), login, purpose, a.Config); err != nil {
+		if err := a.Store.RequestPasswordReset(r.Context(), login, a.Config); err != nil {
 			return err
 		}
 	}
 	writeJSON(w, 202, map[string]bool{"accepted": true})
-	return nil
-}
-func (a *Server) forgot(w http.ResponseWriter, r *http.Request) error {
-	return a.requestMail(w, r, "reset")
-}
-func (a *Server) requestVerification(w http.ResponseWriter, r *http.Request) error {
-	return a.requestMail(w, r, "verify")
-}
-
-func (a *Server) verify(w http.ResponseWriter, r *http.Request) error {
-	var in struct {
-		Token string `json:"token"`
-	}
-	if err := body(w, r, &in); err != nil {
-		return err
-	}
-	if err := a.limit(r, "verify", "", 30, time.Hour); err != nil {
-		return err
-	}
-	if len(in.Token) != 43 {
-		return bad("invalid_email_token")
-	}
-	_, err := a.Store.ConsumeMailToken(r.Context(), in.Token, "verify", "")
-	if errors.Is(err, store.ErrDenied) {
-		return bad("invalid_email_token")
-	}
-	if err != nil {
-		return err
-	}
-	writeJSON(w, 200, map[string]bool{"verified": true})
 	return nil
 }
 func (a *Server) reset(w http.ResponseWriter, r *http.Request) error {
@@ -171,7 +149,7 @@ func (a *Server) reset(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return bad("invalid_password")
 	}
-	id, err := a.Store.ConsumeMailToken(r.Context(), in.Token, "reset", hash)
+	id, err := a.Store.ConsumePasswordResetToken(r.Context(), in.Token, hash)
 	if errors.Is(err, store.ErrDenied) {
 		return bad("invalid_email_token")
 	}
@@ -209,7 +187,8 @@ func (a *Server) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 		return store.ErrDenied
 	}
 	err = pgx.BeginFunc(r.Context(), a.Store.Pool, func(tx pgx.Tx) error {
-		if err := store.Audit(r.Context(), tx, p.ID, "account.delete", p.ID); err != nil {
+		if err := store.RecordAudit(r.Context(), tx, store.AuditEvent{ActorID: p.ID, AccountID: p.ID, SessionID: p.SessionID,
+			Action: "account.delete", TargetID: p.ID, After: map[string]any{"deleted": true}}); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(r.Context(), "DELETE FROM accounts WHERE id=$1 AND password_hash=$2", p.ID, p.PasswordHash)
@@ -306,12 +285,8 @@ func (a *Server) revokeSession(w http.ResponseWriter, r *http.Request) error {
 	if err = validID(id); err != nil {
 		return err
 	}
-	tag, err := a.Store.Pool.Exec(r.Context(), "UPDATE sessions SET revoked_at=now() WHERE id=$1 AND account_id=$2", id, p.ID)
-	if err != nil {
+	if err = a.Store.RevokeResource(r.Context(), p, p.ID, "session", id); err != nil {
 		return err
-	}
-	if tag.RowsAffected() != 1 {
-		return store.ErrDenied
 	}
 	a.Hub.CloseSession(id)
 	writeJSON(w, 200, map[string]bool{"revoked": true})

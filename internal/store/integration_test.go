@@ -13,45 +13,32 @@ import (
 	"time"
 )
 
-func TestAuthRotationResetAndVerification(t *testing.T) {
+func TestAuthRotationResetAndEmailFirstRegistration(t *testing.T) {
 	s := testutil.Database(t)
 	ctx := context.Background()
 	c := testutil.Config()
 	c.Mode = "hosted"
 	c.SMTP.Address = "smtp.example.test:587"
 	hash, _ := security.Password("test-only-password-123")
-	a, err := s.CreateAccount(ctx, "account@example.test", hash, false, c, "")
+	login := "account@example.test"
+	proof := signupProof(t, s, login)
+	noSignupAccount(t, s, login)
+	a, err := s.CompleteRegistration(ctx, login, proof.Token, hash, c)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Pool.Exec(ctx, "UPDATE accounts SET verified=false WHERE id=$1", a.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.NewSession(ctx, a, c, false); !errors.Is(err, store.ErrDenied) {
-		t.Fatal("unverified login accepted", err)
+		t.Fatal("unverified persisted account accepted despite stale verified snapshot", err)
+	}
+	if _, err = s.Pool.Exec(ctx, "UPDATE accounts SET verified=true WHERE id=$1", a.ID); err != nil {
+		t.Fatal(err)
 	}
 	var mailID string
-	var encrypted []byte
-	if err = s.Pool.QueryRow(ctx, "SELECT id,encrypted_message FROM mail_outbox WHERE account_id=$1", a.ID).Scan(&mailID, &encrypted); err != nil {
-		t.Fatal(err)
-	}
-	data, err := s.Vault.Open("mail:"+mailID, encrypted)
-	if err != nil {
-		t.Fatal(err)
-	}
+	var encrypted, data []byte
 	var message store.MailMessage
-	_ = json.Unmarshal(data, &message)
-	token := strings.Split(strings.Split(message.Body, "#token=")[1], "\r\n")[0]
-	if strings.Contains(string(encrypted), token) {
-		t.Fatal("plaintext token storage")
-	}
-	if _, err = s.ConsumeMailToken(ctx, token, "verify", ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ConsumeMailToken(ctx, token, "verify", ""); !errors.Is(err, store.ErrDenied) {
-		t.Fatal("email token reused")
-	}
-	a, err = s.AccountByLogin(ctx, a.Login)
-	if err != nil {
-		t.Fatal(err)
-	}
 	first, err := s.NewSession(ctx, a, c, false)
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +57,7 @@ func TestAuthRotationResetAndVerification(t *testing.T) {
 		t.Fatal("refresh family not revoked")
 	}
 	_, fresh := testutil.Principal(t, s, a)
-	if err = s.RequestMail(ctx, a.Login, "reset", c); err != nil {
+	if err = s.RequestPasswordReset(ctx, a.Login, c); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.Pool.QueryRow(ctx, "SELECT id,encrypted_message FROM mail_outbox WHERE account_id=$1 AND purpose='reset'", a.ID).Scan(&mailID, &encrypted); err != nil {
@@ -80,7 +67,7 @@ func TestAuthRotationResetAndVerification(t *testing.T) {
 	_ = json.Unmarshal(data, &message)
 	reset := strings.Split(strings.Split(message.Body, "#token=")[1], "\r\n")[0]
 	nextHash, _ := security.Password("another-test-password-123")
-	if _, err = s.ConsumeMailToken(ctx, reset, "reset", nextHash); err != nil {
+	if _, err = s.ConsumePasswordResetToken(ctx, reset, nextHash); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.Authenticate(ctx, fresh.Access, false); !errors.Is(err, store.ErrDenied) {
@@ -89,14 +76,16 @@ func TestAuthRotationResetAndVerification(t *testing.T) {
 	if _, err = s.NewSession(ctx, a, c, false); !errors.Is(err, store.ErrDenied) {
 		t.Fatal("stale password login race")
 	}
-	if _, err = s.ConsumeMailToken(ctx, reset, "reset", nextHash); !errors.Is(err, store.ErrDenied) {
+	if _, err = s.ConsumePasswordResetToken(ctx, reset, nextHash); !errors.Is(err, store.ErrDenied) {
 		t.Fatal("reset reused")
 	}
-	if err = s.RequestMail(ctx, a.Login, "reset", c); err != nil {
+	if err = s.RequestPasswordReset(ctx, a.Login, c); err != nil {
 		t.Fatal(err)
 	}
+	message = testutil.Mail(t, s, a.ID, "reset")
+	reset = strings.Split(strings.Split(message.Body, "#token=")[1], "\r\n")[0]
 	_, _ = s.Pool.Exec(ctx, "UPDATE email_tokens SET expires_at=now()-interval '1 second' WHERE account_id=$1", a.ID)
-	if _, err = s.ConsumeMailToken(ctx, reset, "reset", nextHash); !errors.Is(err, store.ErrDenied) {
+	if _, err = s.ConsumePasswordResetToken(ctx, reset, nextHash); !errors.Is(err, store.ErrDenied) {
 		t.Fatal("expired reset accepted")
 	}
 }
@@ -164,7 +153,7 @@ func TestConcurrentRedemptionsAndUTC(t *testing.T) {
 	}
 }
 
-func TestPairingAccountIsolationExpiryAndRevocation(t *testing.T) {
+func TestBindingAccountIsolationAndRevocation(t *testing.T) {
 	s := testutil.Database(t)
 	ctx := context.Background()
 	g, m, b := testutil.Devices(t, s)
@@ -174,19 +163,8 @@ func TestPairingAccountIsolationExpiryAndRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pairing, err := s.NewPairing(ctx, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.JoinPairing(ctx, pairing.ID, outsider); !errors.Is(err, store.ErrDenied) {
-		t.Fatal("cross-account pairing")
-	}
 	if _, err = s.Binding(ctx, b.ID, outsider, true); !errors.Is(err, store.ErrDenied) {
 		t.Fatal("cross-account binding")
-	}
-	_, _ = s.Pool.Exec(ctx, "UPDATE pairings SET expires_at=now()-interval '1 second' WHERE id=$1", pairing.ID)
-	if _, err = s.JoinPairing(ctx, pairing.ID, m); !errors.Is(err, store.ErrDenied) {
-		t.Fatal("expired pairing")
 	}
 	if err = s.RevokeBinding(ctx, b.ID, g.AccountID); err != nil {
 		t.Fatal(err)

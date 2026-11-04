@@ -15,7 +15,6 @@ var adminTemplate = template.Must(template.ParseFS(webFiles, "web/admin.html"))
 
 func (a *Server) webRoutes() {
 	a.handle("GET /{$}", a.page)
-	a.handle("GET /verify", a.page)
 	a.handle("GET /reset", a.page)
 	a.handle("GET /admin", a.page)
 	a.handle("GET /admin/setup", a.page)
@@ -45,9 +44,9 @@ func (a *Server) webRoutes() {
 func (a *Server) page(w http.ResponseWriter, r *http.Request) error {
 	language, text := pageLanguage(w, r, a.Config.Development)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if r.URL.Path == "/" || r.URL.Path == "/verify" || r.URL.Path == "/reset" {
+	if r.URL.Path == "/" || r.URL.Path == "/reset" {
 		return pageTemplate.Execute(w, map[string]any{"Mode": a.Config.Mode, "Hosted": a.Config.Paid(),
-			"Home": r.URL.Path == "/", "Verify": r.URL.Path == "/verify", "Reset": r.URL.Path == "/reset",
+			"Home": r.URL.Path == "/", "Reset": r.URL.Path == "/reset",
 			"Language": language, "Text": text})
 	}
 	if r.URL.Path == "/admin/setup" {

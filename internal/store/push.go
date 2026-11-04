@@ -60,15 +60,43 @@ var apnsToken = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 
 func (s *Store) RegisterEndpoint(ctx context.Context, d Device, in EndpointInput, c config.Config) (Endpoint, error) {
 	var out Endpoint
+	if d.Role != "mobile" {
+		return out, ErrDenied
+	}
 	if _, err := s.Binding(ctx, in.BindingID, d, false); err != nil {
 		return out, err
 	}
 	if !in.Enabled || !in.Consent {
 		err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+			// Withdrawal needs the caller's own live identity, not desktop access or service days.
+			var owned bool
+			err := tx.QueryRow(ctx, `SELECT true FROM bindings b
+				JOIN installations i ON i.id=b.installation_id JOIN gateways g ON g.id=b.gateway_id
+				JOIN sessions ms ON ms.id=i.session_id JOIN accounts a ON a.id=i.account_id
+				WHERE b.id=$1 AND i.id=$2 AND i.account_id=$3 AND g.account_id=$3
+				AND i.session_id=$4 AND i.revoked_at IS NULL AND ms.revoked_at IS NULL
+				AND ms.refresh_expires_at>clock_timestamp() AND a.verified AND NOT a.disabled
+				AND NOT a.credentials_change_required FOR UPDATE OF b`,
+				in.BindingID, d.ID, d.AccountID, d.SessionID).Scan(&owned)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrDenied
+			}
+			if err != nil {
+				return err
+			}
+			var beforeEnabled, beforeConsent bool
+			err = tx.QueryRow(ctx, "SELECT enabled,consent FROM push_endpoints WHERE binding_id=$1 FOR UPDATE", in.BindingID).Scan(&beforeEnabled, &beforeConsent)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
 			if _, err := tx.Exec(ctx, "UPDATE push_endpoints SET enabled=false,consent=false WHERE binding_id=$1", in.BindingID); err != nil {
 				return err
 			}
-			_, err := tx.Exec(ctx, "UPDATE push_jobs SET status='cancelled' WHERE binding_id=$1 AND status IN ('queued','leased')", in.BindingID)
+			_, err = tx.Exec(ctx, "UPDATE push_jobs SET status='cancelled' WHERE binding_id=$1 AND status IN ('queued','leased')", in.BindingID)
+			if err == nil && (beforeEnabled || beforeConsent) {
+				err = RecordAudit(ctx, tx, deviceAudit(d, "push.consent", in.BindingID,
+					map[string]any{"enabled": beforeEnabled, "consent": beforeConsent}, map[string]any{"enabled": false, "consent": false}))
+			}
 			return err
 		})
 		return out, err
@@ -86,7 +114,7 @@ func (s *Store) RegisterEndpoint(ctx context.Context, d Device, in EndpointInput
 	}
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var eligible bool
-		if err := tx.QueryRow(ctx, `SELECT a.verified AND NOT a.disabled AND (NOT $2 OR e.expires_at>clock_timestamp())
+		if err := tx.QueryRow(ctx, `SELECT a.verified AND NOT a.disabled AND NOT a.credentials_change_required AND (NOT $2 OR e.expires_at>clock_timestamp())
 			FROM accounts a JOIN entitlements e ON e.account_id=a.id WHERE a.id=$1 FOR UPDATE OF a`, d.AccountID, c.Paid()).Scan(&eligible); err != nil {
 			return err
 		}
@@ -94,7 +122,11 @@ func (s *Store) RegisterEndpoint(ctx context.Context, d Device, in EndpointInput
 			return ErrDenied
 		}
 		var active bool
-		if err := tx.QueryRow(ctx, "SELECT status='active' FROM bindings WHERE id=$1 AND installation_id=$2 FOR UPDATE", in.BindingID, d.ID).Scan(&active); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT b.status='active' AND g.revoked_at IS NULL AND i.revoked_at IS NULL
+			AND gs.revoked_at IS NULL AND ms.revoked_at IS NULL AND gs.refresh_expires_at>clock_timestamp() AND ms.refresh_expires_at>clock_timestamp()
+			FROM bindings b JOIN gateways g ON g.id=b.gateway_id JOIN installations i ON i.id=b.installation_id
+			JOIN sessions gs ON gs.id=g.session_id JOIN sessions ms ON ms.id=i.session_id
+			WHERE b.id=$1 AND i.id=$2 AND g.account_id=$3 AND i.account_id=$3 AND i.session_id=$4 FOR UPDATE OF b`, in.BindingID, d.ID, d.AccountID, d.SessionID).Scan(&active); err != nil {
 			return err
 		}
 		if !active {
@@ -128,7 +160,12 @@ func (s *Store) RegisterEndpoint(ctx context.Context, d Device, in EndpointInput
 			return err
 		}
 		_, err = tx.Exec(ctx, "UPDATE push_jobs SET status='cancelled' WHERE binding_id=$1 AND status IN ('queued','leased')", in.BindingID)
-		return err
+		if err != nil {
+			return err
+		}
+		return RecordAudit(ctx, tx, deviceAudit(d, "push.consent", in.BindingID,
+			map[string]any{"enabled": oldEnabled, "consent": oldConsent, "revision": oldRevision},
+			map[string]any{"enabled": true, "consent": true, "revision": out.Revision}))
 	})
 	return out, err
 }

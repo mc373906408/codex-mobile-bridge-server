@@ -65,7 +65,7 @@ func (a *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if strings.HasPrefix(r.URL.Path, "/v1/") && r.URL.RawQuery != "" {
+	if strings.HasPrefix(r.URL.Path, "/v1/") && r.URL.RawQuery != "" && !adminListQuery(r) {
 		a.respondError(w, bad("query_not_allowed"))
 		return
 	}
@@ -320,13 +320,13 @@ func (a *Server) routes() {
 		return nil
 	})
 	a.handle("GET /v1/capabilities", a.capabilities)
+	a.handle("POST /v1/auth/registration-code", a.requestRegistrationCode)
+	a.handle("POST /v1/auth/registration-verify", a.verifyRegistrationCode)
 	a.handle("POST /v1/auth/register", a.register)
 	a.handle("POST /v1/auth/login", a.login)
 	a.handle("POST /v1/admin/auth/setup", a.finishAdministratorSetup)
 	a.handle("POST /v1/auth/refresh", a.refresh)
 	a.handle("POST /v1/auth/logout", a.logout)
-	a.handle("POST /v1/auth/verification", a.requestVerification)
-	a.handle("POST /v1/auth/verify", a.verify)
 	a.handle("POST /v1/auth/forgot", a.forgot)
 	a.handle("POST /v1/auth/reset", a.reset)
 	a.handle("GET /v1/auth/sessions", a.sessions)
@@ -342,15 +342,26 @@ func (a *Server) routes() {
 
 func (a *Server) capabilities(w http.ResponseWriter, r *http.Request) error {
 	login := "username"
+	verificationMethods := []string{}
+	registrationFlow := ""
+	redemptionCodeLength := 0
 	if a.Config.Paid() {
 		login = "email"
+		verificationMethods = []string{"code"}
+		registrationFlow = "email_code_password"
+		redemptionCodeLength = security.RedemptionCodeLength
 	}
 	writeJSON(w, 200, map[string]any{"mode": a.Config.Mode, "login": login, "registration": a.Config.Paid(), "redemption": a.Config.Paid(),
-		"redemption_web": false, "web_home": "/", "web_console": "/admin",
+		"email_verification_methods": verificationMethods, "email_verification_code_length": 6,
+		"registration_flow":      registrationFlow,
+		"redemption_code_length": redemptionCodeLength,
+		"redemption_web":         false, "web_home": "/", "web_console": "/admin",
 		"administrator_login": "username", "administrator_initial_setup": true, "web_languages": []string{"zh-CN", "en"},
 		"web_access":     "administrator_only",
 		"password_reset": a.Config.MailEnabled(), "entitlement_required": a.Config.Paid(), "relay_protocols": []int{1},
 		"control_noise": "Noise_KK_25519_ChaChaPoly_BLAKE2s", "preview_noise": "Noise_K_25519_ChaChaPoly_BLAKE2s",
+		"pairing_method":   "desktop_approval",
+		"device_discovery": "account_directory_v1", "binding_access": "desktop_switch_v1",
 		"push": map[string]any{"umeng": a.Config.UmengEnabled(), "apns": a.Config.APNSEnabled(), "umeng_app_id": a.Config.Umeng.AppKey, "apns_app_id": a.Config.APNS.Topic}})
 	return nil
 }
