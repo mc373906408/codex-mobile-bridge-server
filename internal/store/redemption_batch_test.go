@@ -220,7 +220,7 @@ func TestBatchMigrationRefusesHistoricalDuplicatesWithoutChangingReceipts(t *tes
 	err = s.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM redemptions),
 		(SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='redemption_codes' AND column_name='batch_id'),
 		(SELECT count(*) FROM schema_migrations)`).Scan(&receipts, &columns, &migrations)
-	if err != nil || receipts != 2 || columns != 0 || migrations != 1 {
+	if err != nil || receipts != 2 || columns != 0 || migrations != 2 {
 		t.Fatal("failed migration was not atomic", err, receipts, columns, migrations)
 	}
 }

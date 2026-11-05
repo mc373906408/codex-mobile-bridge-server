@@ -10,6 +10,50 @@ import (
 	"github.com/mc373906408/codex-mobile-bridge-server/internal/store"
 )
 
+func TestGatewayBacklogIsBoundedPerBindingAndScheduledFairly(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hub := New(nil, config.Config{})
+	g := &peer{device: store.Device{ID: "gateway", Role: "gateway"}, ctx: ctx, cancel: cancel,
+		queues: make(map[string][][]byte), wake: make(chan struct{}, 1), nextWrite: make(map[string]time.Time)}
+	makePhone := func(id, binding string) *peer {
+		c, stop := context.WithCancel(ctx)
+		t.Cleanup(stop)
+		p := &peer{device: store.Device{Role: "mobile"}, binding: store.Binding{ID: binding, GatewayID: g.device.ID}, channel: id, gateway: g, ctx: c, cancel: stop}
+		hub.mobiles[id] = p
+		return p
+	}
+	a := makePhone("11111111-1111-4111-8111-111111111111", "33333333-3333-4333-8333-333333333333")
+	b := makePhone("22222222-2222-4222-8222-222222222222", "44444444-4444-4444-8444-444444444444")
+	for range 128 {
+		if !hub.enqueue(g, Frame{Kind: Record, ChannelID: a.channel, BindingID: a.binding.ID, Payload: make([]byte, 16)}) {
+			t.Fatal("premature queue rejection")
+		}
+	}
+	if !hub.enqueue(g, Frame{Kind: Record, ChannelID: b.channel, BindingID: b.binding.ID, Payload: make([]byte, 16)}) {
+		t.Fatal("other binding rejected")
+	}
+	if hub.enqueue(g, Frame{Kind: Record, ChannelID: a.channel, BindingID: a.binding.ID, Payload: make([]byte, 16)}) {
+		t.Fatal("queue grew beyond limit")
+	}
+	if a.ctx.Err() == nil || b.ctx.Err() != nil || ctx.Err() != nil {
+		t.Fatal("backlog was not isolated")
+	}
+	first, err := hub.next(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ := Decode(first)
+	second, err := hub.next(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := Decode(second)
+	if f.Kind != Close || f.ChannelID != a.channel || s.ChannelID != b.channel {
+		t.Fatal("scheduler did not preserve isolation and fairness")
+	}
+}
+
 func TestPhoneCloseAcknowledgementDoesNotDisconnectGateway(t *testing.T) {
 	hub := New(nil, config.Config{})
 	gatewayCtx, cancelGateway := context.WithCancel(context.Background())

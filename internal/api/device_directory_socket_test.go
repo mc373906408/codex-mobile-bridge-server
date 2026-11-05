@@ -58,7 +58,7 @@ func TestDiscoveredPendingSocketsRouteProofAndDisableOnlyTheTargetPhone(t *testi
 			headers.Set("X-Bridge-Binding", binding)
 		}
 		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/ws/"+role,
-			&websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{"bridge-relay-v1"}})
+			&websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{"bridge-relay-v2"}})
 		if err != nil {
 			t.Fatal("fixture socket failed", err)
 		}
@@ -121,7 +121,7 @@ func TestDiscoveredPendingSocketsRouteProofAndDisableOnlyTheTargetPhone(t *testi
 		t.Fatal("unrelated phone stopped routing")
 	}
 	headers := http.Header{"Authorization": []string{"Bearer " + phones[0].Token}, "X-Bridge-Binding": []string{bindings[0].ID}}
-	conn, denied, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/ws/mobile", &websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{"bridge-relay-v1"}})
+	conn, denied, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/ws/mobile", &websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{"bridge-relay-v2"}})
 	if conn != nil {
 		conn.CloseNow()
 	}
@@ -166,7 +166,7 @@ func TestAdministratorDeviceAndSessionRevocationCloseOnlyTargetSockets(t *testin
 			headers.Set("X-Bridge-Binding", binding)
 		}
 		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/ws/"+role,
-			&websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{"bridge-relay-v1"}})
+			&websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{"bridge-relay-v2"}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -232,6 +232,23 @@ func TestCompletedPhoneRequestsKeepGatewayAndOtherPhoneConnected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	g, m, binding := testutil.Devices(t, s)
+	a, err := s.AccountByLogin(ctx, "devices")
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal, _ := testutil.Principal(t, s, a)
+	otherMobile, err := s.Enroll(ctx, principal, "mobile", "", "Other phone", append([]byte{3}, make([]byte, 31)...), 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherBindings, err := s.DeviceBindings(ctx, otherMobile)
+	if err != nil || len(otherBindings) != 1 {
+		t.Fatal(err)
+	}
+	otherBinding, err := s.SetBindingAccess(ctx, otherBindings[0].ID, g, otherMobile.PublicKey, true, otherBindings[0].AccessRevision, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	dial := func(role string, device store.Device, binding string) *websocket.Conn {
 		t.Helper()
 		headers := http.Header{"Authorization": []string{"Bearer " + device.Token}}
@@ -239,7 +256,7 @@ func TestCompletedPhoneRequestsKeepGatewayAndOtherPhoneConnected(t *testing.T) {
 			headers.Set("X-Bridge-Binding", binding)
 		}
 		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/ws/"+role,
-			&websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{"bridge-relay-v1"}})
+			&websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{"bridge-relay-v2"}})
 		if err != nil {
 			t.Fatal("socket failed", err)
 		}
@@ -269,7 +286,7 @@ func TestCompletedPhoneRequestsKeepGatewayAndOtherPhoneConnected(t *testing.T) {
 		}
 	}
 	gateway := dial("gateway", g, "")
-	standing := dial("mobile", m, binding.ID)
+	standing := dial("mobile", otherMobile, otherBinding.ID)
 	standingOpen := read(gateway)
 	read(standing)
 	for n := range 40 {
@@ -294,7 +311,7 @@ func TestCompletedPhoneRequestsKeepGatewayAndOtherPhoneConnected(t *testing.T) {
 		// Close queued after the phone has already gone away.
 		write(gateway, relay.Frame{Kind: relay.Record, BindingID: binding.ID, ChannelID: closed.ChannelID, Payload: bytes.Repeat([]byte{7}, 16)})
 		write(gateway, closed)
-		frame := relay.Frame{Kind: relay.Record, BindingID: binding.ID, ChannelID: standingOpen.ChannelID,
+		frame := relay.Frame{Kind: relay.Record, BindingID: otherBinding.ID, ChannelID: standingOpen.ChannelID,
 			Payload: bytes.Repeat([]byte{byte(n + 1)}, 16)}
 		write(gateway, frame)
 		if got := read(standing); !bytes.Equal(got.Payload, frame.Payload) {

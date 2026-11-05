@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -14,18 +15,22 @@ import (
 )
 
 type peer struct {
-	device  store.Device
-	binding store.Binding
-	channel string
-	conn    *websocket.Conn
-	out     chan []byte
-	ctx     context.Context
-	cancel  context.CancelFunc
-	window  time.Time
-	bytes   int
-	closed  map[string]closedRoute
-	retired []string
-	gateway *peer
+	device    store.Device
+	binding   store.Binding
+	channel   string
+	conn      *websocket.Conn
+	out       chan []byte
+	ctx       context.Context
+	cancel    context.CancelFunc
+	window    time.Time
+	bytes     int
+	closed    map[string]closedRoute
+	retired   []string
+	gateway   *peer
+	queues    map[string][][]byte
+	order     []string
+	wake      chan struct{}
+	nextWrite map[string]time.Time
 }
 
 const closedRouteLimit = 128
@@ -128,8 +133,8 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 		http.Error(w, "native relay clients only", http.StatusForbidden)
 		return
 	}
-	if !hasProtocol(r.Header.Values("Sec-WebSocket-Protocol"), "bridge-relay-v1") {
-		http.Error(w, "protocol required", http.StatusBadRequest)
+	if !hasProtocol(r.Header.Values("Sec-WebSocket-Protocol"), "bridge-relay-v2") {
+		http.Error(w, "protocol_upgrade_required", http.StatusUpgradeRequired)
 		return
 	}
 	channel, err := security.ID()
@@ -138,7 +143,13 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 		return
 	}
 	ctx, cancel := context.WithCancel(r.Context())
-	p := &peer{device: d, binding: b, channel: channel, out: make(chan []byte, 8), ctx: ctx, cancel: cancel, window: time.Now()}
+	p := &peer{device: d, binding: b, channel: channel, out: make(chan []byte, 128), ctx: ctx, cancel: cancel, window: time.Now(),
+		queues: make(map[string][][]byte), wake: make(chan struct{}, 1), nextWrite: make(map[string]time.Time)}
+	started := time.Now()
+	reason := "transport_closed"
+	defer func() {
+		slog.Info("relay_connection_end", "role", d.Role, "channel", channel, "reason", reason, "duration_ms", time.Since(started).Milliseconds())
+	}()
 	defer cancel()
 	h.mu.Lock()
 	if len(h.gateways)+len(h.mobiles) >= h.config.MaxConnections {
@@ -162,6 +173,10 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 		}
 		count := 0
 		for _, m := range h.mobiles {
+			if m.binding.ID == b.ID {
+				// A newly authenticated transport supersedes only this binding.
+				m.cancel()
+			}
 			if m.binding.GatewayID == b.GatewayID {
 				count++
 			}
@@ -182,12 +197,13 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 			return
 		}
 	}
-	p.conn, err = websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"bridge-relay-v1"}, CompressionMode: websocket.CompressionDisabled})
+	p.conn, err = websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"bridge-relay-v2"}, CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		return
 	}
 	defer p.conn.CloseNow()
 	p.conn.SetReadLimit(MaxFrame)
+	slog.Info("relay_connection_open", "role", d.Role, "channel", channel, "protocol", 2)
 	if d.Role == "mobile" {
 		h.mu.Lock()
 		gateway := h.gateways[b.GatewayID]
@@ -209,22 +225,16 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 			return
 		}
 		if kind != websocket.MessageBinary {
-			return
-		}
-		now := time.Now()
-		if now.Sub(p.window) >= time.Second {
-			p.window = now
-			p.bytes = 0
-		}
-		p.bytes += len(data)
-		if p.bytes > h.config.BytesPerSecond {
+			reason = "non_binary_frame"
 			return
 		}
 		frame, err := Decode(data)
 		if err != nil || frame.Kind == Open {
+			reason = "invalid_frame"
 			return
 		}
 		if err = h.forward(p, frame, data); err != nil {
+			reason = "route_rejected"
 			return
 		}
 	}
@@ -261,12 +271,48 @@ func splitProtocols(v string) []string {
 }
 
 func (h *Hub) enqueue(p *peer, f Frame) bool {
-	if p.ctx.Err() != nil {
+	if p == nil || p.ctx.Err() != nil {
 		return false
 	}
 	data, err := f.Encode()
 	if err != nil {
 		return false
+	}
+	return h.queue(p, f.ChannelID, data)
+}
+
+// Caller holds Hub.mu. Queue pressure belongs to one authenticated binding.
+func (h *Hub) queue(p *peer, channel string, data []byte) bool {
+	if p.device.Role == "gateway" && p.queues != nil {
+		q, exists := p.queues[channel]
+		if !exists && len(p.queues) >= 64 {
+			if mobile := h.mobiles[channel]; mobile != nil {
+				mobile.cancel()
+			}
+			return false
+		}
+		if len(q) >= 128 {
+			if mobile := h.mobiles[channel]; mobile != nil {
+				mobile.cancel()
+			}
+			// Poison only this Noise route. Send its Close after discarding its backlog.
+			f, err := Decode(data)
+			if err == nil {
+				closing, _ := (Frame{Kind: Close, BindingID: f.BindingID, ChannelID: channel}).Encode()
+				p.queues[channel] = [][]byte{closing}
+			}
+			slog.Warn("relay_backpressure", "channel", channel, "reason", "binding_queue_full")
+			return false
+		}
+		if !exists {
+			p.order = append(p.order, channel)
+		}
+		p.queues[channel] = append(q, data)
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
+		return true
 	}
 	select {
 	case p.out <- data:
@@ -308,24 +354,22 @@ func (h *Hub) forward(sender *peer, f Frame, data []byte) error {
 			return errors.New("gateway offline")
 		}
 	}
-	select {
-	case <-target.ctx.Done():
+	if target.ctx.Err() != nil {
 		if sender.device.Role == "gateway" {
 			return nil
 		}
 		return errors.New("peer disconnected")
-	case target.out <- data:
+	}
+	if h.queue(target, f.ChannelID, data) {
 		if f.Kind == Close && sender.device.Role == "mobile" {
 			sender.cancel()
 		}
 		return nil
-	default:
-		target.cancel()
-		if sender.device.Role == "gateway" {
-			return nil
-		}
-		return errors.New("slow consumer")
 	}
+	if sender.device.Role == "mobile" {
+		sender.cancel()
+	}
+	return nil
 }
 
 // Accessed only under Hub.mu. A tombstone is bound to this gateway connection
@@ -357,10 +401,11 @@ func (p *peer) rememberClosed(channel, binding string) {
 func (h *Hub) write(p *peer) {
 	defer p.cancel()
 	for {
-		select {
-		case <-p.ctx.Done():
+		data, err := h.next(p)
+		if err != nil {
 			return
-		case data := <-p.out:
+		}
+		{
 			ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
 			err := p.conn.Write(ctx, websocket.MessageBinary, data)
 			cancel()
@@ -375,14 +420,87 @@ func (h *Hub) write(p *peer) {
 	}
 }
 
+// Fair scheduling across bindings with a bounded burst, before socket writes.
+func (h *Hub) next(p *peer) ([]byte, error) {
+	if p.device.Role != "gateway" || p.queues == nil {
+		select {
+		case <-p.ctx.Done():
+			return nil, p.ctx.Err()
+		case data := <-p.out:
+			if err := h.pace(p, p.channel, len(data)); err != nil {
+				return nil, err
+			}
+			return data, nil
+		}
+	}
+	for {
+		h.mu.Lock()
+		now := time.Now()
+		wait := time.Second
+		for n := len(p.order); n > 0; n-- {
+			id := p.order[0]
+			p.order = p.order[1:]
+			q := p.queues[id]
+			if len(q) == 0 {
+				delete(p.queues, id)
+				delete(p.nextWrite, id)
+				continue
+			}
+			if delay := p.nextWrite[id].Sub(now); delay > 0 {
+				if delay < wait {
+					wait = delay
+				}
+				p.order = append(p.order, id)
+				continue
+			}
+			data := q[0]
+			p.queues[id] = q[1:]
+			p.order = append(p.order, id)
+			if h.config.BytesPerSecond > 0 {
+				p.nextWrite[id] = now.Add(time.Duration(len(data)) * time.Second / time.Duration(h.config.BytesPerSecond))
+			}
+			h.mu.Unlock()
+			return data, nil
+		}
+		h.mu.Unlock()
+		timer := time.NewTimer(wait)
+		select {
+		case <-p.ctx.Done():
+			timer.Stop()
+			return nil, p.ctx.Err()
+		case <-p.wake:
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
+}
+
+func (h *Hub) pace(p *peer, id string, size int) error {
+	if h.config.BytesPerSecond <= 0 {
+		return nil
+	}
+	if delay := time.Until(p.nextWrite[id]); delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-p.ctx.Done():
+			return p.ctx.Err()
+		case <-timer.C:
+		}
+	}
+	p.nextWrite[id] = time.Now().Add(time.Duration(size) * time.Second / time.Duration(h.config.BytesPerSecond))
+	return nil
+}
+
 func (h *Hub) review(p *peer, token string) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	var expiry time.Time
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
 			_, err := h.store.Device(ctx, token, p.device.Role)
 			if err == nil {
@@ -391,15 +509,25 @@ func (h *Hub) review(p *peer, token string) {
 				if err == nil && !e.Active {
 					err = store.ErrDenied
 				}
+				if err == nil && e.Required && e.ExpiresAt != nil {
+					// Database server time is authoritative; use a local monotonic deadline.
+					expiry = time.Now().Add(e.ExpiresAt.Sub(e.ServerTime))
+				}
 			}
 			if err == nil && p.device.Role == "mobile" {
 				_, err = h.store.Binding(ctx, p.binding.ID, p.device, true)
 			}
 			cancel()
 			if err != nil {
+				slog.Info("relay_access_closed", "channel", p.channel, "reason", "access_review_failed")
 				p.cancel()
 				return
 			}
+			next := 30 * time.Second
+			if !expiry.IsZero() && time.Until(expiry) < next {
+				next = time.Until(expiry)
+			}
+			timer.Reset(max(next, 0))
 		}
 	}
 }

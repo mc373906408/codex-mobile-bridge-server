@@ -1,8 +1,43 @@
 # Cloud relay implementation checkpoint
 
+## Persistent relay v2 deployed on 2026-11-05
+
+The hosted instance runs `bridge-server:relay-v2-32987e26dac75937`, binary SHA256
+`d149ab63fef4ac0d235711aa782d7fc4de1c48b9e22dab26e0faafcc7d52886d`.
+The incremental `003_refresh_recovery.sql` migration preserves existing accounts,
+entitlements, devices, bindings and redemption data. Database/HTTPS containers and
+credential mounts are unchanged; a private database backup and the prior image
+are retained. TLS, readiness, capability `[2]`, admin and unauthorized-access
+checks passed. Desktop and Lenovo Android have been upgraded to the matching protocol.
+
+The real Go/Python/Rust/Dart business phase completed 107,648 requests in 1,800
+seconds on one business handshake. Separate final tests cover concurrent SSE,
+inbox/list reads, 20 MiB download/upload, heartbeat, automatic reconnect, listener
+cancellation and unknown-write no-replay. Go/PostgreSQL 118 tests pass without
+skips; deployment-host isolated regression and actual candidate startup pass.
+Background encrypted test push reached a durable phone ACK. iOS verification is
+limited to static project checks. See the [v2 decision](../.agents/notes/implemented/architecture/2026-11-05-persistent-relay-v2.md)
+for the original failures and exact validation boundaries.
+
 For the current architecture, permission flows and reproduced gaps, see the
 [server architecture audit](../.agents/notes/implemented/architecture/2026-11-03-server-architecture-and-scope-audit.md).
 The dated checkpoints below retain their original verification scope.
+
+## U-Push configured and verified on 2026-11-05
+
+The existing server image now loads the matching U-Push AppKey and server-only
+App Master Secret through a private Compose secret file. Only the application
+container was recreated; database and HTTPS containers retained their identities.
+Trusted TLS, readiness and `push.umeng=true` passed verification. This deployment
+uses `UMENG_PRODUCTION=false` for the existing debug test phone.
+
+The updated Lenovo L71091 app initializes cloud notifications after login/restore
+without an app toggle. Its active endpoint registered successfully. One generic
+encrypted test delivered while the app was backgrounded: the provider accepted
+the first attempt, Android posted the matching task notification, and the native
+receipt reconciled to server status `acked`. This is test-device evidence, not a
+signed production release or iOS/force-stop acceptance. See the
+[push configuration decision](../.agents/notes/implemented/bug-fix/2026-11-05-cloud-push-configuration.md).
 
 ## Per-account redemption batch limit deployed on 2026-11-04
 

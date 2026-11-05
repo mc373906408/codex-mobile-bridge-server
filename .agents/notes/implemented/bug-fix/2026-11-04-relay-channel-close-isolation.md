@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[持久中继 v2](../architecture/2026-11-05-persistent-relay-v2.md)进一步改为按绑定复用会话、按流结束请求并隔离背压。本篇保留原自然关闭竞态及身份隔离理由。
+
 ## Problem
 
 用户反馈云服务连接不稳定。当前部署未重启、无 OOM、资源充足，手机连续六次受信 HTTPS 健康检查均成功（约 80–106 ms），但这些不覆盖中继通道。隔离测试确认 `Hub.remove` 删除已结束手机通道并发送 Close 后，桌面 worker 的 finally 回发 Close 被 `forward` 判为 unauthorized route；`Serve` 因此关闭共享桌面连接，并取消其余手机通道。每个 HTTP 请求使用独立手机通道，正常请求结束就可能触发这条竞态。

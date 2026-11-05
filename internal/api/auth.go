@@ -75,7 +75,8 @@ func (a *Server) login(w http.ResponseWriter, r *http.Request) error {
 
 func (a *Server) refresh(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
-		Token string `json:"refresh_token"`
+		Token     string `json:"refresh_token"`
+		RequestID string `json:"request_id"`
 	}
 	if err := body(w, r, &in); err != nil {
 		return err
@@ -86,7 +87,10 @@ func (a *Server) refresh(w http.ResponseWriter, r *http.Request) error {
 	if len(in.Token) != 43 {
 		return failure{401, "invalid_refresh_token"}
 	}
-	tokens, err := a.Store.Refresh(r.Context(), in.Token, a.Config)
+	if err := validID(in.RequestID); err != nil {
+		return err
+	}
+	tokens, err := a.Store.Refresh(r.Context(), in.Token, a.Config, in.RequestID)
 	if errors.Is(err, store.ErrDenied) {
 		return failure{401, "invalid_refresh_token"}
 	}

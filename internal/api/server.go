@@ -361,7 +361,7 @@ func (a *Server) capabilities(w http.ResponseWriter, r *http.Request) error {
 		"redemption_web":         false, "web_home": "/", "web_console": "/admin",
 		"administrator_login": "username", "administrator_initial_setup": true, "web_languages": []string{"zh-CN", "en"},
 		"web_access":     "administrator_only",
-		"password_reset": a.Config.MailEnabled(), "entitlement_required": a.Config.Paid(), "relay_protocols": []int{1},
+		"password_reset": a.Config.MailEnabled(), "entitlement_required": a.Config.Paid(), "relay_protocols": []int{2},
 		"control_noise": "Noise_KK_25519_ChaChaPoly_BLAKE2s", "preview_noise": "Noise_K_25519_ChaChaPoly_BLAKE2s",
 		"pairing_method":   "desktop_approval",
 		"device_discovery": "account_directory_v1", "binding_access": "desktop_switch_v1",

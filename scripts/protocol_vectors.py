@@ -33,7 +33,7 @@ def vectors():
     dp, mp, de, me, dpp, mpp = [bytes(range(i, i+32)) for i in (1, 33, 65, 97, 129, 161)]
     dp_pub, mp_pub = public(dp), public(mp)
     authority = struct.pack("!H", len(origin)) + origin.encode("ascii")
-    cp = b"bridge/control/v1\0" + authority + b"".join(x.bytes for x in ids[:3]) + dp_pub + mp_pub
+    cp = b"bridge/control/v2\0" + authority + b"".join(x.bytes for x in ids[:3]) + dp_pub + mp_pub
     a = connection("Noise_KK_25519_ChaChaPoly_BLAKE2s", mp, dp_pub, cp, True, me)
     b = connection("Noise_KK_25519_ChaChaPoly_BLAKE2s", dp, mp_pub, cp, False, de)
     first = bytes(a.write_message())

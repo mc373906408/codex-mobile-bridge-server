@@ -284,53 +284,14 @@ func (s *Store) Authenticate(ctx context.Context, token string, web bool) (Princ
 	return p, err
 }
 
-func (s *Store) Refresh(ctx context.Context, token string, c config.Config) (Tokens, error) {
-	t := Tokens{ExpiresIn: int64(c.AccessTTL.Seconds())}
-	var err error
-	for _, out := range []*string{&t.Access, &t.Refresh} {
-		*out, err = security.Token()
-		if err != nil {
-			return t, err
-		}
+func (s *Store) Refresh(ctx context.Context, token string, c config.Config, requestIDs ...string) (Tokens, error) {
+	requestID := ""
+	if len(requestIDs) == 1 {
+		requestID = requestIDs[0]
+	} else {
+		requestID, _ = security.ID()
 	}
-	denied := false
-	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		var id, accountID string
-		err := tx.QueryRow(ctx, "SELECT id,account_id FROM sessions WHERE refresh_digest=$1 AND revoked_at IS NULL AND refresh_expires_at>now() FOR UPDATE", security.Digest(token)).Scan(&id, &accountID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			denied = true
-			err = tx.QueryRow(ctx, `UPDATE sessions SET revoked_at=now() WHERE revoked_at IS NULL
-				AND id IN (SELECT session_id FROM spent_refresh_tokens WHERE digest=$1) RETURNING id,account_id`, security.Digest(token)).Scan(&id, &accountID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			return RecordAudit(ctx, tx, AuditEvent{AccountID: accountID, SessionID: id, Action: "session.reuse", TargetID: id,
-				Before: map[string]any{"revoked": false}, After: map[string]any{"revoked": true}})
-		}
-		if err != nil {
-			return err
-		}
-		t.Account, err = scanAccount(tx.QueryRow(ctx, "SELECT "+accountColumns+" FROM accounts WHERE id=$1", accountID))
-		if err != nil {
-			return err
-		}
-		if t.Account.Disabled || !t.Account.Verified || t.Account.CredentialsChangeRequired {
-			denied = true
-			return nil
-		}
-		if _, err = tx.Exec(ctx, "INSERT INTO spent_refresh_tokens(digest,session_id) VALUES($1,$2)", security.Digest(token), id); err != nil {
-			return err
-		}
-		_, err = tx.Exec(ctx, "UPDATE sessions SET access_digest=$2,refresh_digest=$3,access_expires_at=now()+$4::interval WHERE id=$1", id, security.Digest(t.Access), security.Digest(t.Refresh), Interval(c.AccessTTL))
-		return err
-	})
-	if err == nil && denied {
-		err = ErrDenied
-	}
-	return t, err
+	return s.refreshRecoverable(ctx, token, requestID, c)
 }
 
 func (s *Store) RateLimit(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {

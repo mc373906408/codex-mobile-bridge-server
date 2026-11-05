@@ -7,7 +7,7 @@ import (
 	"github.com/mc373906408/codex-mobile-bridge-server/internal/security"
 )
 
-const Version byte = 1
+const Version byte = 2
 const Open byte = 1
 const Record byte = 2
 const Close byte = 3
