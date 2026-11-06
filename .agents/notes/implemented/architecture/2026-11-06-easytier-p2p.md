@@ -27,7 +27,7 @@ P2P 可以降低业务中继流量，但关闭云 WebSocket 不再意味着关�
 
 ## Testing
 
-120 项 Go/PostgreSQL 测试通过，无数据库跳过；额外 WSS 固定目标代理及浏览器拒绝测试通过。真实三端夹具验证 P2P 绕过中继、云失败持续通信及恢复后撤销关闭。服务端部署镜像 `bridge-server:p2p-wss-20261106`，二进制 SHA256 `f9c3916a2bc26758cbdc34147ee62a79e1dcbd82736d66b3e1893e78543abb2b`；引导使用上游 2.6.4 固定二进制 `35b854e0c5853c02733870488c977200f6aa06d09c08d5dc7f9f9e150e7be8d5`。数据库备份和前一 Compose 配置保存在部署主机 `artifacts/p2p-20261106/`，现有秘密挂载和网络配置核对保留。公网 HTTPS 能力和 WSS 证书/升级通过。Windows 环境未执行 Go race（未配置 CGO）；不得声称 race 通过。
+121 项 Go/PostgreSQL 测试通过，无数据库跳过，包含 WSS 固定目标代理及浏览器拒绝测试。真实三端夹具验证 P2P 绕过中继、云失败持续通信及恢复后撤销关闭。服务端部署镜像 `bridge-server:p2p-wss-20261106`，二进制 SHA256 `f9c3916a2bc26758cbdc34147ee62a79e1dcbd82736d66b3e1893e78543abb2b`；引导使用上游 2.6.4 固定二进制 `35b854e0c5853c02733870488c977200f6aa06d09c08d5dc7f9f9e150e7be8d5`。数据库备份和前一 Compose 配置保存在部署主机 `artifacts/p2p-20261106/`，现有秘密挂载和网络配置核对保留。公网 HTTPS 能力和 WSS 证书/升级通过。Windows 环境未执行 Go race（未配置 CGO）；不得声称 race 通过。
 
 ## Consequences
 
