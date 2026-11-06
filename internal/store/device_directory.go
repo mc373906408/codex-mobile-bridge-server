@@ -42,16 +42,19 @@ const directoryColumns = `b.id,b.gateway_id,b.installation_id,b.status,g.control
 	e.revision,COALESCE(b.status='active' AND e.enabled AND e.consent,false),i.name,g.name,b.access_revision,
 	(g.revoked_at IS NOT NULL OR i.revoked_at IS NOT NULL),
 	COALESCE(i.last_seen_at>clock_timestamp()-interval '12 seconds' AND i.revoked_at IS NULL
-	AND ms.revoked_at IS NULL AND ms.refresh_expires_at>clock_timestamp(),false)`
+	AND ms.revoked_at IS NULL AND ms.refresh_expires_at>clock_timestamp(),false),
+	COALESCE(ms.revoked_at IS NULL AND ms.refresh_expires_at>clock_timestamp()
+	AND gs.revoked_at IS NULL AND gs.refresh_expires_at>clock_timestamp(),false)`
 
 const directoryJoins = ` FROM bindings b JOIN gateways g ON g.id=b.gateway_id
 	JOIN installations i ON i.id=b.installation_id JOIN sessions ms ON ms.id=i.session_id
+	JOIN sessions gs ON gs.id=g.session_id
 	LEFT JOIN push_endpoints e ON e.binding_id=b.id `
 
 func scanDirectory(row pgx.Row) (Binding, error) {
 	var b Binding
 	err := row.Scan(&b.ID, &b.GatewayID, &b.InstallationID, &b.Status, &b.GatewayPublicKey, &b.MobilePublicKey,
-		&b.EndpointRevision, &b.PushEnabled, &b.DeviceName, &b.GatewayName, &b.AccessRevision, &b.DeviceRevoked, &b.MobileOnline)
+		&b.EndpointRevision, &b.PushEnabled, &b.DeviceName, &b.GatewayName, &b.AccessRevision, &b.DeviceRevoked, &b.MobileOnline, &b.SessionsValid)
 	return b, err
 }
 

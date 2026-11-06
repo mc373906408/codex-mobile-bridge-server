@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+可选直连、服务端主动授权信令及云离线延迟撤销见 [EasyTier P2P](2026-11-06-easytier-p2p.md)；本篇的中继资格复查与关闭仍有效。
+
 三端使用 `bridge-relay-v2`、外层版本 2 和 `bridge/control/v2` prologue。每个 binding/凭据代次复用一个 Noise 会话；服务器仍只处理密文路由。预览与安全码保持 v1。内层控制消息使用非零、单调增长的 `stream_id`；正文是 `0x01 || uint64_be(stream_id) || bytes`，控制仍为 `0x00 || JSON`。握手控制不带流 ID，运行期 ping/pong 使用流 0。请求、credit、response_start、request_end、response_end、response_ack、cancel 和 stream_error 均在对应流内；结束和取消不关闭连接。未知或退役流记录丢弃，不复用流 ID。认证失败关闭整个加密会话，业务错误仅结束一个流。
 
 每会话最多 8 个流、每方向 4 块正文窗口，每块明文最多 32768 字节；传输大于 1 MiB 或文件端点视作大文件，每会话最多 1 个、每桌面最多 2 个。发送器在加密前公平调度，各 Noise 会话密文严格保序。服务器按绑定调度，限额用于节流；过载隔离到绑定，不能丢密文后继续使用同一 Noise 会话。

@@ -22,11 +22,12 @@ import (
 )
 
 type Server struct {
-	Config    config.Config
-	Store     *store.Store
-	Hub       *relay.Hub
-	mux       *http.ServeMux
-	dummyHash string
+	Config         config.Config
+	Store          *store.Store
+	Hub            *relay.Hub
+	mux            *http.ServeMux
+	dummyHash      string
+	bootstrapSlots chan struct{}
 }
 
 type failure struct {
@@ -42,7 +43,7 @@ func New(c config.Config, s *store.Store) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Server{Config: c, Store: s, Hub: relay.New(s, c), mux: http.NewServeMux(), dummyHash: dummy}
+	a := &Server{Config: c, Store: s, Hub: relay.New(s, c), mux: http.NewServeMux(), dummyHash: dummy, bootstrapSlots: make(chan struct{}, max(1, c.MaxConnections))}
 	a.routes()
 	return a, nil
 }
@@ -365,6 +366,7 @@ func (a *Server) capabilities(w http.ResponseWriter, r *http.Request) error {
 		"control_noise": "Noise_KK_25519_ChaChaPoly_BLAKE2s", "preview_noise": "Noise_K_25519_ChaChaPoly_BLAKE2s",
 		"pairing_method":   "desktop_approval",
 		"device_discovery": "account_directory_v1", "binding_access": "desktop_switch_v1",
+		"p2p":  map[string]any{"protocol": "easytier-v1", "enabled": len(a.Config.P2PBootstrap) > 0, "bootstrap": a.Config.P2PBootstrap},
 		"push": map[string]any{"umeng": a.Config.UmengEnabled(), "apns": a.Config.APNSEnabled(), "umeng_app_id": a.Config.Umeng.AppKey, "apns_app_id": a.Config.APNS.Topic}})
 	return nil
 }

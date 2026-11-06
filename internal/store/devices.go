@@ -36,6 +36,8 @@ type Binding struct {
 	GatewayOnline    bool    `json:"gateway_online"`
 	MobileOnline     bool    `json:"mobile_online"`
 	DeviceRevoked    bool    `json:"device_revoked"`
+	SessionsValid    bool    `json:"-"`
+	AccessAllowed    *bool   `json:"access_allowed,omitempty"`
 }
 
 func PublicKey(value string) ([]byte, error) {

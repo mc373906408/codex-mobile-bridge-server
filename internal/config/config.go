@@ -26,6 +26,8 @@ type Config struct {
 	SMTP                              SMTP
 	Umeng                             Umeng
 	APNS                              APNS
+	P2PBootstrap                      []string
+	P2PProxyTarget                    string
 }
 
 type SMTP struct {
@@ -82,6 +84,30 @@ func Load() (Config, error) {
 			Topic: os.Getenv("APNS_TOPIC"), Sandbox: os.Getenv("APNS_SANDBOX") == "true"},
 	}
 	var err error
+	c.P2PProxyTarget = os.Getenv("BRIDGE_P2P_PROXY_TARGET")
+	if c.P2PProxyTarget != "" {
+		if _, _, err := net.SplitHostPort(c.P2PProxyTarget); err != nil {
+			return c, errors.New("invalid BRIDGE_P2P_PROXY_TARGET")
+		}
+	}
+	for _, endpoint := range strings.Split(os.Getenv("BRIDGE_P2P_BOOTSTRAP"), ",") {
+		endpoint = strings.TrimSpace(endpoint)
+		if endpoint == "" {
+			continue
+		}
+		u, parseErr := url.Parse(endpoint)
+		if parseErr != nil || (u.Scheme != "tcp" && u.Scheme != "udp" && u.Scheme != "wss") || u.Hostname() == "" || (u.Port() == "" && u.Scheme != "wss") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme == "wss" && u.Path != "/v1/p2p/bootstrap") || (u.Scheme != "wss" && u.Path != "" && u.Path != "/") {
+			return c, errors.New("invalid BRIDGE_P2P_BOOTSTRAP endpoint")
+		}
+		port, portErr := strconv.Atoi(u.Port())
+		if u.Scheme == "wss" && u.Port() == "" {
+			port, portErr = 443, nil
+		}
+		if portErr != nil || port < 1 || port > 65535 || len(c.P2PBootstrap) >= 4 {
+			return c, errors.New("invalid BRIDGE_P2P_BOOTSTRAP port or count")
+		}
+		c.P2PBootstrap = append(c.P2PBootstrap, endpoint)
+	}
 	if os.Getenv("UMENG_MESSAGE_SECRET") != "" || os.Getenv("UMENG_MESSAGE_SECRET_FILE") != "" {
 		return c, errors.New("use UMENG_APP_MASTER_SECRET for server HTTP signing; Message Secret belongs only in the Android build")
 	}

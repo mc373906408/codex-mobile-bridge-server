@@ -20,6 +20,8 @@ func (a *Server) deviceRoutes() {
 	a.handle("GET /v1/gateway/bindings/{id}", a.gatewayBinding)
 	a.handle("POST /v1/gateway/bindings/{id}/access", a.bindingAccess)
 	a.handle("GET /v1/bindings/{id}", a.mobileBinding)
+	a.handle("GET /v1/gateway/bindings/{id}/p2p", a.p2pBinding)
+	a.handle("GET /v1/p2p/bootstrap", a.p2pBootstrap)
 	a.handle("DELETE /v1/bindings/{id}", a.revokeBinding)
 	a.handle("GET /v1/ws/gateway", a.gatewaySocket)
 	a.handle("GET /v1/ws/mobile", a.mobileSocket)
@@ -158,8 +160,7 @@ func (a *Server) gatewayBindings(w http.ResponseWriter, r *http.Request) error {
 	for i := range items {
 		items[i].GatewayOnline = !items[i].DeviceRevoked && a.Hub.GatewayOnline(items[i].GatewayID)
 	}
-	writeJSON(w, 200, map[string]any{"bindings": items})
-	return nil
+	return a.writeDeviceDirectory(w, r, d, items)
 }
 
 func (a *Server) mobileBindings(w http.ResponseWriter, r *http.Request) error {
@@ -177,7 +178,49 @@ func (a *Server) mobileBindings(w http.ResponseWriter, r *http.Request) error {
 	for i := range items {
 		items[i].GatewayOnline = !items[i].DeviceRevoked && a.Hub.GatewayOnline(items[i].GatewayID)
 	}
-	writeJSON(w, 200, map[string]any{"bindings": items})
+	return a.writeDeviceDirectory(w, r, d, items)
+}
+
+// One entitlement lookup for the entire account directory, independent of online presence.
+func (a *Server) writeDeviceDirectory(w http.ResponseWriter, r *http.Request, d store.Device, items []store.Binding) error {
+	e, err := a.Store.Entitlement(r.Context(), d.AccountID, a.Config.Paid())
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		allowed := e.Active && items[i].Status == "active" && !items[i].DeviceRevoked && items[i].SessionsValid
+		items[i].AccessAllowed = &allowed
+	}
+	writeJSON(w, 200, map[string]any{"bindings": items, "access": map[string]any{
+		"version": 1, "origin": a.Config.Origin, "account_id": d.AccountID, "device_id": d.ID,
+		"entitlement_active": e.Active,
+	}})
+	return nil
+}
+
+// Called by the desktop for every new P2P Noise session. Existing sessions do not
+// need leases; an unreachable server cannot authorize a new session.
+func (a *Server) p2pBinding(w http.ResponseWriter, r *http.Request) error {
+	d, _, err := a.device(r, "gateway", true)
+	if err != nil {
+		return err
+	}
+	if len(a.Config.P2PBootstrap) == 0 {
+		return failure{404, "p2p_disabled"}
+	}
+	id := r.PathValue("id")
+	if err = validID(id); err != nil {
+		return err
+	}
+	b, err := a.Store.DirectoryBinding(r.Context(), id, d)
+	if err != nil {
+		return err
+	}
+	if b.Status != "active" || b.DeviceRevoked || !b.SessionsValid {
+		return store.ErrDenied
+	}
+	writeJSON(w, 200, map[string]any{"origin": a.Config.Origin, "account_id": d.AccountID,
+		"device_id": d.ID, "binding": b, "bootstrap": a.Config.P2PBootstrap})
 	return nil
 }
 

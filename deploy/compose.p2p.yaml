@@ -1,0 +1,25 @@
+# Optional discovery-only EasyTier node; payload always falls back to Bridge relay.
+services:
+  server:
+    environment:
+      BRIDGE_P2P_BOOTSTRAP: wss://${BRIDGE_DOMAIN}/v1/p2p/bootstrap
+      BRIDGE_P2P_PROXY_TARGET: p2p:11010
+  p2p:
+    image: easytier/easytier:v2.6.4
+    networks: [edge]
+    restart: unless-stopped
+    command: [--config-file, /etc/easytier/bridge.toml]
+    volumes:
+      - ./deploy/easytier-bootstrap.toml:/etc/easytier/bridge.toml:ro
+    environment:
+      HOME: /tmp
+    tmpfs: [/tmp:size=16m,mode=1777]
+    ports:
+      - '11010:11010/tcp'
+      - '11010:11010/udp'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}

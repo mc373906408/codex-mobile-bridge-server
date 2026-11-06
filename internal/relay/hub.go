@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -31,6 +32,7 @@ type peer struct {
 	order     []string
 	wake      chan struct{}
 	nextWrite map[string]time.Time
+	signals   chan []byte
 }
 
 const closedRouteLimit = 128
@@ -58,12 +60,12 @@ func (h *Hub) CloseAccount(id string) {
 	defer h.mu.Unlock()
 	for _, p := range h.gateways {
 		if p.device.AccountID == id {
-			p.cancel()
+			h.signalClose(p, "", "account_changed")
 		}
 	}
 	for _, p := range h.mobiles {
 		if p.device.AccountID == id {
-			p.cancel()
+			h.signalClose(p, p.binding.ID, "account_changed")
 		}
 	}
 }
@@ -72,12 +74,13 @@ func (h *Hub) CloseSession(id string) {
 	defer h.mu.Unlock()
 	for _, p := range h.gateways {
 		if p.device.SessionID == id {
-			p.cancel()
+			h.signalClose(p, "", "session_changed")
 		}
 	}
 	for _, p := range h.mobiles {
 		if p.device.SessionID == id {
-			p.cancel()
+			h.signal(p.gateway, p.binding.ID, "session_changed")
+			h.signalClose(p, p.binding.ID, "session_changed")
 		}
 	}
 }
@@ -86,12 +89,13 @@ func (h *Hub) CloseDevice(id string) {
 	defer h.mu.Unlock()
 	for _, p := range h.gateways {
 		if p.device.ID == id {
-			p.cancel()
+			h.signalClose(p, "", "device_changed")
 		}
 	}
 	for _, p := range h.mobiles {
 		if p.device.ID == id {
-			p.cancel()
+			h.signal(p.gateway, p.binding.ID, "device_changed")
+			h.signalClose(p, p.binding.ID, "device_changed")
 		}
 	}
 }
@@ -100,9 +104,50 @@ func (h *Hub) CloseBinding(id string) {
 	defer h.mu.Unlock()
 	for _, p := range h.mobiles {
 		if p.binding.ID == id {
-			p.cancel()
+			h.signal(p.gateway, id, "binding_changed")
+			h.signalClose(p, id, "binding_changed")
 		}
 	}
+}
+
+// A signal requests an authoritative recheck rather than carrying a stale grant
+// or revocation across a concurrent renewal. Only opted-in TLS peers receive it.
+func (h *Hub) signal(p *peer, binding, reason string) {
+	h.sendSignal(p, binding, reason, false)
+}
+
+func (h *Hub) signalClose(p *peer, binding, reason string) {
+	h.sendSignal(p, binding, reason, true)
+}
+
+func (h *Hub) sendSignal(p *peer, binding, reason string, closeAfter bool) {
+	if p == nil || p.signals == nil || p.conn == nil {
+		if p != nil && closeAfter {
+			p.cancel()
+		}
+		return
+	}
+	data, _ := json.Marshal(map[string]any{"kind": "access_changed", "origin": h.config.Origin,
+		"account_id": p.device.AccountID, "device_id": p.device.ID, "binding_id": binding, "reason": reason})
+	select {
+	case p.signals <- data:
+	default:
+		if closeAfter {
+			p.cancel()
+		}
+		return
+	}
+	go func() {
+		defer func() {
+			<-p.signals
+			if closeAfter {
+				p.cancel()
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = p.conn.Write(ctx, websocket.MessageText, data)
+	}()
 }
 func (h *Hub) Shutdown() {
 	h.mu.Lock()
@@ -145,6 +190,9 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 	ctx, cancel := context.WithCancel(r.Context())
 	p := &peer{device: d, binding: b, channel: channel, out: make(chan []byte, 128), ctx: ctx, cancel: cancel, window: time.Now(),
 		queues: make(map[string][][]byte), wake: make(chan struct{}, 1), nextWrite: make(map[string]time.Time)}
+	if r.Header.Get("X-Bridge-Control") == "access-v1" {
+		p.signals = make(chan []byte, 16)
+	}
 	started := time.Now()
 	reason := "transport_closed"
 	defer func() {
@@ -197,10 +245,13 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, d store.Device, b st
 			return
 		}
 	}
-	p.conn, err = websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"bridge-relay-v2"}, CompressionMode: websocket.CompressionDisabled})
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"bridge-relay-v2"}, CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		return
 	}
+	h.mu.Lock()
+	p.conn = conn
+	h.mu.Unlock()
 	defer p.conn.CloseNow()
 	p.conn.SetReadLimit(MaxFrame)
 	slog.Info("relay_connection_open", "role", d.Role, "channel", channel, "protocol", 2)
@@ -520,6 +571,16 @@ func (h *Hub) review(p *peer, token string) {
 			cancel()
 			if err != nil {
 				slog.Info("relay_access_closed", "channel", p.channel, "reason", "access_review_failed")
+				// Database/network failures are not authority decisions.
+				if errors.Is(err, store.ErrDenied) {
+					h.mu.Lock()
+					h.signalClose(p, p.binding.ID, "access_expired_or_revoked")
+					if p.device.Role == "mobile" {
+						h.signal(p.gateway, p.binding.ID, "access_expired_or_revoked")
+					}
+					h.mu.Unlock()
+					return
+				}
 				p.cancel()
 				return
 			}
