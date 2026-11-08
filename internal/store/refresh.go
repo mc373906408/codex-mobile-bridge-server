@@ -31,7 +31,7 @@ func (s *Store) refreshRecoverable(ctx context.Context, token, requestID string,
 		var accessExpiry, dbNow time.Time
 		err := tx.QueryRow(ctx, `SELECT s.id,s.account_id,s.refresh_digest,s.access_expires_at,clock_timestamp()
             FROM sessions s WHERE (s.refresh_digest=$1 OR s.id=(SELECT session_id FROM spent_refresh_tokens WHERE digest=$1))
-            AND s.revoked_at IS NULL AND s.refresh_expires_at>now() FOR UPDATE`, digest).Scan(&sessionID, &accountID, &current, &accessExpiry, &dbNow)
+            AND s.purpose <> 'web_client' AND s.revoked_at IS NULL AND s.refresh_expires_at>now() FOR UPDATE`, digest).Scan(&sessionID, &accountID, &current, &accessExpiry, &dbNow)
 		if errors.Is(err, pgx.ErrNoRows) {
 			denied = true
 			return nil

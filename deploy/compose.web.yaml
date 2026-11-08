@@ -1,0 +1,10 @@
+# Standard deployment: primary HTTPS remains 443; optional account-Web uses 18787.
+services:
+  server:
+    environment:
+      BRIDGE_WEB_ORIGIN: https://${BRIDGE_DOMAIN:?Set BRIDGE_DOMAIN}:18787
+  https:
+    ports:
+      - '18787:18787'
+    volumes:
+      - ./deploy/Caddyfile.web:/etc/caddy/Caddyfile:ro

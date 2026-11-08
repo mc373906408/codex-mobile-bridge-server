@@ -216,7 +216,24 @@ func (s *Store) ConsumePasswordResetToken(ctx context.Context, token, passwordHa
 }
 
 func (s *Store) NewSession(ctx context.Context, a Account, c config.Config, web bool) (Tokens, error) {
-	if a.CredentialsChangeRequired || (web && !a.Administrator) {
+	purpose := "native"
+	if web {
+		purpose = "admin"
+	}
+	return s.newSession(ctx, a, c, purpose)
+}
+
+func (s *Store) NewWebClientSession(ctx context.Context, a Account, c config.Config) (Tokens, error) {
+	return s.newSession(ctx, a, c, "web_client")
+}
+
+func (s *Store) newSession(ctx context.Context, a Account, c config.Config, purpose string) (Tokens, error) {
+	web, admin := purpose != "native", purpose == "admin"
+	refreshTTL := c.RefreshTTL
+	if purpose == "web_client" && refreshTTL > 12*time.Hour {
+		refreshTTL = 12 * time.Hour
+	}
+	if a.CredentialsChangeRequired || (admin && !a.Administrator) {
 		return Tokens{}, ErrDenied
 	}
 	t := Tokens{ExpiresIn: int64(c.AccessTTL.Seconds()), Account: a}
@@ -242,7 +259,7 @@ func (s *Store) NewSession(ctx context.Context, a Account, c config.Config, web 
 	}
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var enabled bool
-		if err := tx.QueryRow(ctx, "SELECT verified AND NOT disabled AND NOT credentials_change_required AND password_hash=$2 AND (NOT $3::boolean OR administrator) FROM accounts WHERE id=$1 FOR UPDATE", a.ID, a.PasswordHash, web).Scan(&enabled); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT verified AND NOT disabled AND NOT credentials_change_required AND password_hash=$2 AND (NOT $3::boolean OR administrator) FROM accounts WHERE id=$1 FOR UPDATE", a.ID, a.PasswordHash, admin).Scan(&enabled); err != nil {
 			return err
 		}
 		if !enabled {
@@ -255,14 +272,14 @@ func (s *Store) NewSession(ctx context.Context, a Account, c config.Config, web 
 		if count >= 32 {
 			return ErrConflict
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO sessions(id,account_id,access_digest,refresh_digest,web_digest,csrf,access_expires_at,refresh_expires_at,web_expires_at)
-			VALUES($1,$2,$3,$4,$5,$6,now()+$7::interval,now()+$8::interval,$9)`,
-			id, a.ID, security.Digest(t.Access), security.Digest(t.Refresh), webDigest, t.CSRF, Interval(c.AccessTTL), Interval(c.RefreshTTL), webExpires)
+		_, err := tx.Exec(ctx, `INSERT INTO sessions(id,account_id,access_digest,refresh_digest,web_digest,csrf,access_expires_at,refresh_expires_at,web_expires_at,purpose)
+			VALUES($1,$2,$3,$4,$5,$6,now()+$7::interval,now()+$8::interval,$9,$10)`,
+			id, a.ID, security.Digest(t.Access), security.Digest(t.Refresh), webDigest, t.CSRF, Interval(c.AccessTTL), Interval(refreshTTL), webExpires, purpose)
 		if err != nil {
 			return err
 		}
 		return RecordAudit(ctx, tx, AuditEvent{ActorID: a.ID, AccountID: a.ID, SessionID: id, Action: "session.create", TargetID: id,
-			After: map[string]any{"web": web, "revoked": false}})
+			After: map[string]any{"web": web, "purpose": purpose, "revoked": false}})
 	})
 	return t, err
 }
@@ -276,7 +293,7 @@ func (s *Store) Authenticate(ctx context.Context, token string, web bool) (Princ
 	err := s.Pool.QueryRow(ctx, `SELECT a.id,a.login,a.password_hash,a.verified,a.administrator,a.disabled,a.created_at,s.id,s.csrf
 		FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.`+column+`=$1 AND s.`+expiry+`>now()
 		AND s.revoked_at IS NULL AND s.refresh_expires_at>now() AND a.verified AND NOT a.disabled AND NOT a.credentials_change_required
-		AND (NOT $2::boolean OR a.administrator)`, security.Digest(token), web).Scan(
+		AND s.purpose <> 'web_client' AND (NOT $2::boolean OR (a.administrator AND s.purpose='admin'))`, security.Digest(token), web).Scan(
 		&p.ID, &p.Login, &p.PasswordHash, &p.Verified, &p.Administrator, &p.Disabled, &p.CreatedAt, &p.SessionID, &p.CSRF)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrDenied

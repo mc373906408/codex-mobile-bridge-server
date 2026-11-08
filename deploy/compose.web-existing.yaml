@@ -1,0 +1,9 @@
+# Existing/custom TLS installation: preserve its Caddyfile, certificate mounts,
+# renewal and primary port. Add the 18787 site to that active Caddyfile first.
+services:
+  server:
+    environment:
+      BRIDGE_WEB_ORIGIN: https://${BRIDGE_DOMAIN:?Set BRIDGE_DOMAIN}:18787
+  https:
+    ports:
+      - '18787:18787'

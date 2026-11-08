@@ -1,0 +1,14 @@
+{
+	auto_https disable_redirects
+}
+
+https://{$BRIDGE_DOMAIN}, https://{$BRIDGE_DOMAIN}:18787 {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+	reverse_proxy server:8080 {
+		flush_interval -1
+	}
+}

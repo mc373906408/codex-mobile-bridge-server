@@ -13,6 +13,7 @@ import (
 	"github.com/mc373906408/codex-mobile-bridge-server/internal/config"
 	"github.com/mc373906408/codex-mobile-bridge-server/internal/security"
 	"github.com/mc373906408/codex-mobile-bridge-server/internal/store"
+	"github.com/mc373906408/codex-mobile-bridge-server/internal/webproxy"
 )
 
 type peer struct {
@@ -44,6 +45,7 @@ type closedRoute struct {
 }
 
 type Hub struct {
+	Web      *webproxy.Hub
 	mu       sync.Mutex
 	gateways map[string]*peer
 	mobiles  map[string]*peer
@@ -52,10 +54,11 @@ type Hub struct {
 }
 
 func New(s *store.Store, c config.Config) *Hub {
-	return &Hub{gateways: make(map[string]*peer), mobiles: make(map[string]*peer), store: s, config: c}
+	return &Hub{Web: webproxy.New(s, c), gateways: make(map[string]*peer), mobiles: make(map[string]*peer), store: s, config: c}
 }
 
 func (h *Hub) CloseAccount(id string) {
+	h.Web.CloseAccount(id)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, p := range h.gateways {
@@ -70,6 +73,7 @@ func (h *Hub) CloseAccount(id string) {
 	}
 }
 func (h *Hub) CloseSession(id string) {
+	h.Web.CloseSession(id)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, p := range h.gateways {
@@ -85,6 +89,7 @@ func (h *Hub) CloseSession(id string) {
 	}
 }
 func (h *Hub) CloseDevice(id string) {
+	h.Web.CloseDevice(id)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, p := range h.gateways {
@@ -150,6 +155,7 @@ func (h *Hub) sendSignal(p *peer, binding, reason string, closeAfter bool) {
 	}()
 }
 func (h *Hub) Shutdown() {
+	h.Web.Shutdown()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, p := range h.gateways {

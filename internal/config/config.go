@@ -15,6 +15,7 @@ import (
 
 type Config struct {
 	Mode, Listen, Origin, DatabaseURL string
+	WebOrigin                         string
 	DataKey                           []byte
 	AdminLogin, AdminPassword         string
 	Development                       bool
@@ -73,6 +74,7 @@ func Load() (Config, error) {
 	c := Config{
 		Mode: env("BRIDGE_MODE", "selfhost"), Listen: env("BRIDGE_LISTEN", "127.0.0.1:8080"),
 		Origin:      env("BRIDGE_ORIGIN", "http://127.0.0.1:8080"),
+		WebOrigin:   os.Getenv("BRIDGE_WEB_ORIGIN"),
 		Development: os.Getenv("BRIDGE_DEVELOPMENT") == "true",
 		AdminLogin:  os.Getenv("BRIDGE_ADMIN_LOGIN"),
 		MaxGateways: 8, MaxInstallations: 16, MaxConnections: 1024, MaxPerGateway: 16,
@@ -152,6 +154,22 @@ func Load() (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.WebOrigin != "" {
+		if c.WebOrigin == c.Origin {
+			return errors.New("BRIDGE_WEB_ORIGIN must be separate from BRIDGE_ORIGIN")
+		}
+		other := c
+		other.Origin = c.WebOrigin
+		other.WebOrigin = ""
+		if err := other.Validate(); err != nil {
+			return errors.New("invalid BRIDGE_WEB_ORIGIN: " + err.Error())
+		}
+		primary, primaryErr := url.Parse(c.Origin)
+		web, _ := url.Parse(c.WebOrigin)
+		if primaryErr == nil && primary.Host == web.Host {
+			return errors.New("BRIDGE_WEB_ORIGIN must use a separate authority")
+		}
+	}
 	if c.Mode != "hosted" && c.Mode != "selfhost" {
 		return errors.New("BRIDGE_MODE must be hosted or selfhost")
 	}

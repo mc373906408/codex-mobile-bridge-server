@@ -50,7 +50,13 @@ func New(c config.Config, s *store.Store) (*Server, error) {
 
 func (a *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	u, _ := url.Parse(a.Config.Origin)
-	if r.Host != u.Host {
+	webHost := ""
+	if a.Config.WebOrigin != "" {
+		v, _ := url.Parse(a.Config.WebOrigin)
+		webHost = v.Host
+	}
+	isWeb := webHost != "" && r.Host == webHost
+	if r.Host != u.Host && !isWeb {
 		http.Error(w, "invalid host", http.StatusBadRequest)
 		return
 	}
@@ -65,6 +71,12 @@ func (a *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			a.respondError(w, failure{400, "https_required"})
 			return
 		}
+	}
+	if isWeb {
+		if err := a.serveWebClient(w, r); err != nil {
+			a.respondError(w, err)
+		}
+		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/v1/") && r.URL.RawQuery != "" && !adminListQuery(r) {
 		a.respondError(w, bad("query_not_allowed"))
@@ -337,6 +349,7 @@ func (a *Server) routes() {
 	a.handle("GET /v1/account/entitlement", a.entitlement)
 	a.handle("POST /v1/account/redeem", a.redeem)
 	a.deviceRoutes()
+	a.handle("GET /v1/ws/web-gateway", a.webGatewaySocket)
 	a.adminRoutes()
 	a.webRoutes()
 }
@@ -362,6 +375,7 @@ func (a *Server) capabilities(w http.ResponseWriter, r *http.Request) error {
 		"redemption_web":         false, "web_home": "/", "web_console": "/admin",
 		"administrator_login": "username", "administrator_initial_setup": true, "web_languages": []string{"zh-CN", "en"},
 		"web_access":     "administrator_only",
+		"web_client":     map[string]any{"enabled": a.Config.WebOrigin != "", "origin": a.Config.WebOrigin, "protocol": "bridge-web-proxy-v1"},
 		"password_reset": a.Config.MailEnabled(), "entitlement_required": a.Config.Paid(), "relay_protocols": []int{2},
 		"control_noise": "Noise_KK_25519_ChaChaPoly_BLAKE2s", "preview_noise": "Noise_K_25519_ChaChaPoly_BLAKE2s",
 		"pairing_method":   "desktop_approval",
