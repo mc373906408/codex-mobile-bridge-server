@@ -1,5 +1,29 @@
 # Cloud relay implementation checkpoint
 
+## Registration trial campaigns deployed on 2026-11-09
+
+The hosted instance runs source `d35a7a502f2975411e0fb730e85c3af483857974`
+as `bridge-server:registration-campaigns-20261109-d35a7a5`. The running binary
+SHA256 is `056ea5a77412a9c01bcfd47bb681bf14787ad3f1a8be795515c2bb17ec484da7`.
+Migration `005_registration_campaigns.sql` adds campaign administration and
+atomic trials for verified new registrations. Its default seven-day campaign
+remains a draft with no grants; production activation is a separate admin action.
+
+An encrypted production dump was restored to a separate database for two migration
+runs. All 21 existing business tables and 423 rows were preserved. The application
+was then stopped for a fresh backup and the same production migration comparison.
+Existing account, entitlement, redemption and device data remain intact; database,
+HTTPS and P2P containers, secret mounts and configuration are retained. The prior
+image and encrypted backups remain available; the rehearsal database was removed.
+
+The deployed revision passed Linux PostgreSQL race CI and container smoke tests.
+Production TLS, readiness, admin authentication boundaries, nine embedded assets
+and external HTTPS checks passed. Local functional acceptance includes 109 Go tests,
+14 Node tests and eight Chinese/English desktop/mobile-width browser runs.
+No production campaign was activated and no real signup, email or push was triggered
+for release verification. This scoped restore/migration check does not certify a
+full off-host recovery. See the [campaign decision](../.agents/notes/implemented/feature/2026-11-09-registration-trial-campaigns.md).
+
 ## Persistent relay v2 deployed on 2026-11-05
 
 The hosted instance runs `bridge-server:relay-v2-32987e26dac75937`, binary SHA256
