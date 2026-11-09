@@ -135,9 +135,72 @@ must refuse the old password-first flow rather than falling back silently.
    `expires_in: 600`, not login or device credentials.
 3. `POST /v1/auth/register` with `login`, `registration_token` and `password`
    consumes the proof atomically and creates a verified ordinary account.
-   It returns HTTP 201 with `registered: true`, without signing in, granting
-   service days or authorizing a phone. Missing, expired, spent or differently
+   It returns HTTP 201 with `registered: true`, without signing in or authorizing
+   a phone. An eligible enabled registration campaign grants service days within
+   this same transaction; otherwise the new account has no service expiry.
+   Missing, expired, spent or differently
    scoped proof is rejected; the email must be verified again.
+
+### Registration trial campaigns (hosted only)
+
+Migration `005_registration_campaigns.sql` preserves accounts, redemption history
+and existing service expiry. It creates one **draft** named “邮箱注册 7 天体验”,
+with seven days and no end date or quota. Repeating migrations or restarting the
+server does not recreate, enable or reset it. Upgrading does not start the offer.
+
+In the administrator console, open **Registration campaigns** (注册活动):
+
+1. Edit the draft name, days (1–3650), start time, optional end time and optional
+   total places. A blank start means activation time; a blank end or quota means
+   unlimited. Inputs and displayed dates use the browser timezone shown in the panel.
+2. Save, then activate the saved rules. They become immutable. A future start shows
+   Scheduled; the server uses its database UTC clock, including the start and
+   excluding the end. An elapsed end date cannot be activated.
+3. Stop permanently, or allow the end date/quota to end the campaign. Only then
+   can the next draft be created. Drafts and scheduled campaigns also occupy the
+   single unfinished slot. Ended campaigns cannot be resumed or edited.
+4. Inspect recipient counts, total issued days, remaining places, end reason and
+   paginated grant records. History contains the actual days, grant time and expiry
+   for each account and cannot be edited or deleted.
+
+Only new accounts **completing verified-email registration** during the eligible
+period receive the gift, once per account across all periods. Requesting or verifying
+a code reserves nothing; existing accounts receive no backfill. Registration,
+the grant, counter, service expiry and audit commit or roll back together.
+Expiry is the registration grant time plus `days × 24 hours`, not calendar midnights.
+Stopping the campaign does not shorten any issued service; redemption continues
+from the existing expiry (or the current database time if expired). The gift adds
+no device, browser-access or notification permissions.
+
+The same administrator authentication, Origin/CSRF and transactional permission
+checks apply to these routes:
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET / POST | `/v1/admin/registration-campaigns` | Paginated history / create draft (days default to 7) |
+| PATCH | `/v1/admin/registration-campaigns/{id}` | Replace the draft's editable rule fields |
+| POST | `/v1/admin/registration-campaigns/{id}/activate` | Activate saved rules; JSON body `{}` |
+| POST | `/v1/admin/registration-campaigns/{id}/stop` | End permanently; JSON body `{}` |
+| GET | `/v1/admin/registration-campaigns/{id}/grants` | Paginated recipients |
+
+Draft request fields are `name`, `days`, `starts_at`, `ends_at`, `max_grants`;
+optional values are null, timestamps are RFC 3339 with an offset. PATCH sends the
+complete rule set. Lists accept the existing `limit`/`cursor` scheme and return
+`campaigns` or `grants` with `next_cursor`; cursors cannot cross campaigns. Lists
+derive `status` (`draft`, `scheduled`, `running`, `ended`) from the database clock;
+the stored lifecycle `state` may remain enabled until a write settles expiry.
+Creation settles expired campaigns synchronously, so no background timer is required
+to release the slot. Repeated activation/stop does not duplicate transitions or audit.
+State conflicts return HTTP 409 with `registration_campaign_already_open` or
+`registration_campaign_locked`; invalid rules return HTTP 400
+`invalid_registration_campaign`. Selfhost hides the section and returns HTTP 404
+`registration_campaigns_disabled` for authenticated administrator calls.
+
+There are no client advertisements, claim buttons, backfill endpoints or marketing
+emails. Registration response and service entitlement APIs remain unchanged.
+Enabling a production campaign and deploying an upgrade are separate operator actions.
+
+### Verification resend and recovery
 
 Resend uses `registration-code` again, with persistent rate limits: a sixty-second
 email cooldown and at most three attempts

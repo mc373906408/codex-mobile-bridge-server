@@ -96,7 +96,7 @@ flowchart LR
 
 ### 1. 账号、注册和会话
 
-`hosted` 的新注册依次调用 `registration-code → registration-verify → register`：验证码 6 位、10 分钟有效、最多 5 次错误尝试；验证成功换取另一个 10 分钟有效的单次证明，最后才接收密码并创建已验证账号。证明绑定精确 origin/email；重发使旧码和证明失效。注册成功不自动登录、不增加服务天数、不授权设备。持久化限流在 IP 和身份两个维度生效。
+`hosted` 的新注册依次调用 `registration-code → registration-verify → register`：验证码 6 位、10 分钟有效、最多 5 次错误尝试；验证成功换取另一个 10 分钟有效的单次证明，最后才接收密码并创建已验证账号。证明绑定精确 origin/email；重发使旧码和证明失效。注册成功不自动登录、不授权设备；无有效活动时不增加服务天数，符合条件的新账号按[注册体验活动](../feature/2026-11-09-registration-trial-campaigns.md)在注册事务中获赠。该决定部分取代原先一律不赠送的规则，其余身份与授权边界继续成立。持久化限流在 IP 和身份两个维度生效。
 
 `selfhost` 无公开注册，管理员创建本地用户名账号。普通用户密码由 Argon2id 保存。登录发放 15 分钟 access token 与最长 30 天会话的 refresh token；刷新轮换两种 token，但不延长该会话的原始 refresh 到期日。已用 refresh token 重放会撤销所属会话。网站会话只授予管理员，Cookie 有效期为 12 小时，写请求检查 Origin 和 CSRF。
 

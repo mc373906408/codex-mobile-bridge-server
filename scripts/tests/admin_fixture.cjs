@@ -11,7 +11,7 @@ class Node {
   setAttribute(name,value){this[name]=value;}
   removeAttribute(name){delete this[name];}
   addEventListener(name,handler){this.events[name]=handler;}
-  querySelectorAll(selector){return selector==='button'?this.children.filter(node=>node.tagName==='BUTTON'):[];}
+  querySelectorAll(selector){return selector==='button'?descendants(this).slice(1).filter(node=>node.tagName==='BUTTON'):[];}
   click(){if(!this.disabled)return this.events.click?.();}
 }
 function descendants(node){return [node,...node.children.flatMap(descendants)];}
@@ -20,10 +20,15 @@ async function fixture(language='en',route){
   const ids=['message','codes','code-download','code-export','code-export-summary','generated-code-list','code-list','refresh',
     'users','user-filter','user-count','devices','mobile-devices','bindings','sessions','audit','redemptions','last-updated','runtime',
     'metric-gateways','metric-mobiles','metric-pushes','selected-device-account','selected-session-account','device-management',
+    'campaign-management','campaign-form','campaign-new','campaign-editor-title','campaign-timezone','campaign-name','campaign-days',
+    'campaign-starts','campaign-ends','campaign-limit','campaign-save','campaign-cancel','campaigns','campaign-grants','campaign-selected','campaigns-more','campaign-grants-more',
     ...['users','devices','mobile-devices','bindings','sessions','audit','codes','redemptions'].map(id=>id+'-more')];
   const nodes=new Map(ids.map(id=>[id,new Node()]));
   for(const id of ['users','devices','mobile-devices','bindings','sessions','audit','redemptions','code-list'])nodes.get(id).tagName='TBODY';
   const form=nodes.get('codes');form.append(new Node('button'));
+  for(const id of ['campaign-new','campaign-save','campaign-cancel','campaigns-more','campaign-grants-more'])nodes.get(id).tagName='BUTTON';
+  nodes.get('campaign-management').append(...['campaign-new','campaign-form','campaigns','campaign-grants','campaigns-more','campaign-grants-more'].map(id=>nodes.get(id)));
+  nodes.get('campaign-form').append(nodes.get('campaign-save'),nodes.get('campaign-cancel'));
   const listeners=new Map(),requests=[],exports=new Map(),confirmations=[];let batch,clipboard='',records=[];
   const texts=JSON.parse(fs.readFileSync(path.join(web,'locale_'+language+'.json'),'utf8'));
   const document={documentElement:{lang:language},body:{dataset:{admin:'true',mode:'hosted',accountId:adminID,accountLogin:'operator'}},
@@ -49,14 +54,16 @@ async function fixture(language='en',route){
         }else if(pathname==='/v1/admin/codes')data={codes:records,next_cursor:''};
         else if(pathname==='/v1/admin/status')data={gateways_online:0,mobiles_online:0,push_queued:0};
         else{
-          const key={'/v1/admin/users':'users','/v1/admin/audit':'audit','/v1/admin/redemptions':'redemptions'}[pathname]
+          const key={'/v1/admin/users':'users','/v1/admin/audit':'audit','/v1/admin/redemptions':'redemptions','/v1/admin/registration-campaigns':'campaigns'}[pathname]
             ||(pathname.startsWith('/v1/admin/users/')&&['devices','bindings','sessions'].find(key=>pathname.endsWith('/'+key)));
           assert.ok(key&&method==='GET','Unexpected UI request: '+method+' '+url);data={[key]:[],next_cursor:''};
         }
       }
       return {ok:true,json:async()=>data};
     }};
-  await vm.runInNewContext(source,context);
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(web,'campaigns.js'),'utf8'),context);
+  await vm.runInContext(source,context);
   return {nodes,texts,exports,requests,confirmations,
     async generate(codes){batch={export_once:true,codes};await form.events.submit({preventDefault(){}});},
     pagehide:()=>listeners.get('pagehide')(),get clipboard(){return clipboard;}};

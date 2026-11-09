@@ -52,6 +52,8 @@ docker compose exec -T server /bridge-server healthcheck
 使用 `hosted` 前，先配置 SMTP 邮件服务，再按[部署文档](docs/deployment.md#2-hosted-and-push-opt-ins)启用对应的 Compose 配置。
 管理员负责生成、导出和撤销兑换码；用户在桌面端兑换服务天数，不会因此获得设备配对权限。
 
+`hosted` 管理后台还提供[注册体验活动](docs/deployment.md#registration-trial-campaigns-hosted-only)。升级会预建“邮箱注册 7 天体验”草稿；管理员保存并启用后，符合活动时间和名额的新账号在完成邮箱验证注册时自动获赠。草稿、待开始或进行中的活动同时只能有一期，启用后规则固定，结束不可恢复；已有账号不补发，已发放的有效期不会因活动结束缩短，兑换码可继续顺延。默认草稿不发放服务。
+
 Android/iOS 云推送是可选功能，需要匹配的服务端凭据、客户端配置和用户同意；配置完成不代表通知已经送达。
 
 ## 安全与版本提醒

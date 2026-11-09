@@ -208,6 +208,9 @@ func (s *Store) CompleteRegistration(ctx context.Context, login, token, hash str
 		if _, err = tx.Exec(ctx, "INSERT INTO entitlements(account_id) VALUES($1)", a.ID); err != nil {
 			return err
 		}
+		if err = grantRegistrationTrial(ctx, tx, a.ID); err != nil {
+			return err
+		}
 		if _, err = tx.Exec(ctx, "UPDATE registration_challenges SET used_at=clock_timestamp() WHERE login=$1", login); err != nil {
 			return err
 		}

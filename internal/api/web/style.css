@@ -112,3 +112,10 @@ html[lang="zh-CN"] .fine,html[lang="zh-CN"] label{font-size:12px}
 [id$="-more"]{margin-top:1rem}
 [id$="-more"][hidden]{display:none}
 #device-management h3{margin-top:1.5rem}
+.campaign-form{grid-template-columns:repeat(2,minmax(0,1fr));padding:20px;background:#eff1e760;border:1px solid var(--line)}
+.campaign-form h3,.campaign-form .record-actions{grid-column:1/-1;margin:0}
+.campaign-form[hidden]{display:none}
+.campaign-form .record-actions{align-self:end}
+.campaign-table th:first-child{width:22%}.campaign-table th:last-child{width:22%}
+#campaign-management h3{margin-top:1.5rem}
+@media(max-width:600px){.campaign-form{grid-template-columns:minmax(0,1fr);padding:14px}#campaign-management .section-heading{flex-wrap:wrap}}

@@ -377,18 +377,21 @@ async function start() {
   }
   let loading = false;
   let refreshPending = false;
+  const campaigns = hosted && document.getElementById("campaign-management")
+    ? createRegistrationCampaigns({ document, t, request, page, element, tableRow, empty, identity, date, notice }) : null;
   async function load() {
     if (document.body.dataset.admin !== "true") return;
     if (loading) { refreshPending = true; return; }
     loading = true; const refresh = document.getElementById("refresh"); refresh.disabled = true;
     const panels = [["runtime", loadOverview], ["users", loadUsers], ["devices", loadDevices], ["sessions", loadSessions], ["audit", loadAudit]];
     if (hosted) panels.push(["code-list", loadCodes], ["redemptions", loadRedemptions]);
+    if (campaigns) panels.push(["campaigns", () => campaigns.load()]);
     try {
       const results = await Promise.allSettled(panels.map(async ([id, read]) => {
         const parent = document.getElementById(id); parent.setAttribute("aria-busy", "true");
         try { await read(); }
         catch (error) {
-          if (parent.tagName === "TBODY") { parent.replaceChildren(); empty(parent, id === "code-list" ? 5 : id === "users" && hosted ? 6 : 4, error.message); }
+          if (parent.tagName === "TBODY") { parent.replaceChildren(); empty(parent, id === "code-list" || id === "campaigns" ? 5 : id === "users" && hosted ? 6 : 4, error.message); }
           else parent.textContent = error.message;
           throw error;
         } finally { parent.setAttribute("aria-busy", "false"); }

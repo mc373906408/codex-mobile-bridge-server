@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf" content="{{.CSRF}}"><title>{{.Text.dashboard_title}}</title>
-  <link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
+  <link rel="stylesheet" href="/assets/style.css">{{if .Hosted}}<script src="/assets/campaigns.js" defer></script>{{end}}<script src="/assets/app.js" defer></script>
 </head>
 <body class="admin-page" data-admin="true" data-account-id="{{.Account.ID}}" data-account-login="{{.Account.Login}}" data-mode="{{.Mode}}" data-load-error="{{.Text.network_error}}">
 <a class="skip-link" href="#admin-content">{{.Text.skip_content}}</a>
@@ -26,9 +26,10 @@
       <a href="#overview" aria-current="location"><span aria-hidden="true">01</span>{{.Text.overview_heading}}</a>
       <a href="#user-management"><span aria-hidden="true">02</span>{{.Text.users_heading}}</a>
       {{if .Hosted}}<a href="#code-management"><span aria-hidden="true">03</span>{{.Text.codes_heading}}</a>{{end}}
-      <a href="#device-management"><span aria-hidden="true">{{if .Hosted}}04{{else}}03{{end}}</span>{{.Text.admin_devices_heading}}</a>
-      <a href="#session-management"><span aria-hidden="true">{{if .Hosted}}05{{else}}04{{end}}</span>{{.Text.admin_sessions_heading}}</a>
-      <a href="#audit-management"><span aria-hidden="true">{{if .Hosted}}06{{else}}05{{end}}</span>{{.Text.audit_heading}}</a>
+      {{if .Hosted}}<a href="#campaign-management"><span aria-hidden="true">04</span>{{.Text.campaigns_heading}}</a>{{end}}
+      <a href="#device-management"><span aria-hidden="true">{{if .Hosted}}05{{else}}03{{end}}</span>{{.Text.admin_devices_heading}}</a>
+      <a href="#session-management"><span aria-hidden="true">{{if .Hosted}}06{{else}}04{{end}}</span>{{.Text.admin_sessions_heading}}</a>
+      <a href="#audit-management"><span aria-hidden="true">{{if .Hosted}}07{{else}}05{{end}}</span>{{.Text.audit_heading}}</a>
     </nav>
     <p class="rail-note">{{.Text.admin_boundary_help}}</p>
   </aside>
@@ -85,8 +86,26 @@
         <button id="redemptions-more" type="button" class="secondary" hidden>{{.Text.load_more}}</button>
       </details>
     </section>{{end}}
+    {{if .Hosted}}<section id="campaign-management" class="admin-section panel" aria-labelledby="campaigns-title">
+      <div class="section-heading"><div><p class="eyebrow">04 / {{.Text.campaigns_eyebrow}}</p><h2 id="campaigns-title">{{.Text.campaigns_heading}}</h2><p>{{.Text.campaigns_help}}</p></div><button id="campaign-new" class="secondary" type="button" disabled>{{.Text.campaign_create}}</button></div>
+      <p id="campaign-timezone" class="fine"></p>
+      <form id="campaign-form" class="campaign-form" hidden>
+        <h3 id="campaign-editor-title"></h3>
+        <label>{{.Text.campaign_name}}<input id="campaign-name" name="name" maxlength="120" required></label>
+        <label>{{.Text.campaign_days}}<input id="campaign-days" name="days" type="number" min="1" max="3650" value="7" step="1" required></label>
+        <label>{{.Text.campaign_starts}}<input id="campaign-starts" name="starts_at" type="datetime-local" step="1"><span class="fine">{{.Text.campaign_starts_help}}</span></label>
+        <label>{{.Text.campaign_ends}}<input id="campaign-ends" name="ends_at" type="datetime-local" step="1"><span class="fine">{{.Text.campaign_optional}}</span></label>
+        <label>{{.Text.campaign_limit}}<input id="campaign-limit" name="max_grants" type="number" min="1" max="2147483647" step="1"><span class="fine">{{.Text.campaign_optional}}</span></label>
+        <div class="record-actions"><button id="campaign-save" type="submit">{{.Text.campaign_save}}</button><button id="campaign-cancel" class="secondary" type="button">{{.Text.campaign_cancel}}</button></div>
+      </form>
+      <div class="table-wrap"><table class="admin-table campaign-table"><caption class="visually-hidden">{{.Text.campaigns_heading}}</caption><thead><tr><th scope="col">{{.Text.campaign_name}}</th><th scope="col">{{.Text.status_column}}</th><th scope="col">{{.Text.campaign_schedule}}</th><th scope="col">{{.Text.campaign_statistics}}</th><th scope="col">{{.Text.actions_column}}</th></tr></thead><tbody id="campaigns"><tr><td colspan="5">{{.Text.loading}}</td></tr></tbody></table></div>
+      <button id="campaigns-more" type="button" class="secondary" hidden>{{.Text.load_more}}</button>
+      <h3>{{.Text.campaign_grants_heading}}</h3><p id="campaign-selected" class="fine" aria-live="polite"></p>
+      <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.campaign_grants_heading}}</caption><thead><tr><th scope="col">{{.Text.account_column}}</th><th scope="col">{{.Text.campaign_days}}</th><th scope="col">{{.Text.time_column}}</th><th scope="col">{{.Text.expiry_column}}</th></tr></thead><tbody id="campaign-grants"><tr><td colspan="4">{{.Text.loading}}</td></tr></tbody></table></div>
+      <button id="campaign-grants-more" type="button" class="secondary" hidden>{{.Text.load_more}}</button>
+    </section>{{end}}
     <section id="device-management" class="admin-section panel" aria-labelledby="devices-title">
-      <div class="section-heading"><div><p class="eyebrow">{{if .Hosted}}04{{else}}03{{end}} / {{.Text.connections_eyebrow}}</p><h2 id="devices-title">{{.Text.admin_devices_heading}}</h2><p>{{.Text.admin_devices_help}}</p></div></div>
+      <div class="section-heading"><div><p class="eyebrow">{{if .Hosted}}05{{else}}03{{end}} / {{.Text.connections_eyebrow}}</p><h2 id="devices-title">{{.Text.admin_devices_heading}}</h2><p>{{.Text.admin_devices_help}}</p></div></div>
       <p id="selected-device-account" class="runtime-note" aria-live="polite"></p>
       <h3>{{.Text.gateway_type}}</h3>
       <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.admin_devices_heading}}</caption><thead><tr><th scope="col">{{.Text.device_column}}</th><th scope="col">{{.Text.type_column}}</th><th scope="col">{{.Text.status_column}}</th><th scope="col">{{.Text.actions_column}}</th></tr></thead><tbody id="devices"><tr><td colspan="4">{{.Text.loading}}</td></tr></tbody></table></div>
@@ -99,13 +118,13 @@
       <button id="bindings-more" type="button" class="secondary" hidden>{{.Text.load_more}}</button>
     </section>
     <section id="session-management" class="admin-section panel" aria-labelledby="sessions-title">
-      <div class="section-heading"><div><p class="eyebrow">{{if .Hosted}}05{{else}}04{{end}} / {{.Text.security_eyebrow}}</p><h2 id="sessions-title">{{.Text.admin_sessions_heading}}</h2><p>{{.Text.admin_sessions_help}}</p></div></div>
+      <div class="section-heading"><div><p class="eyebrow">{{if .Hosted}}06{{else}}04{{end}} / {{.Text.security_eyebrow}}</p><h2 id="sessions-title">{{.Text.admin_sessions_heading}}</h2><p>{{.Text.admin_sessions_help}}</p></div></div>
       <p id="selected-session-account" class="runtime-note" aria-live="polite"></p>
       <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.admin_sessions_heading}}</caption><thead><tr><th scope="col">{{.Text.session_column}}</th><th scope="col">{{.Text.status_column}}</th><th scope="col">{{.Text.expiry_column}}</th><th scope="col">{{.Text.actions_column}}</th></tr></thead><tbody id="sessions"><tr><td colspan="4">{{.Text.loading}}</td></tr></tbody></table></div>
       <button id="sessions-more" type="button" class="secondary" hidden>{{.Text.load_more}}</button>
     </section>
     <section id="audit-management" class="admin-section panel" aria-labelledby="audit-title">
-      <div class="section-heading"><div><p class="eyebrow">{{if .Hosted}}06{{else}}05{{end}} / {{.Text.audit_eyebrow}}</p><h2 id="audit-title">{{.Text.audit_heading}}</h2><p>{{.Text.audit_help}}</p></div></div>
+      <div class="section-heading"><div><p class="eyebrow">{{if .Hosted}}07{{else}}05{{end}} / {{.Text.audit_eyebrow}}</p><h2 id="audit-title">{{.Text.audit_heading}}</h2><p>{{.Text.audit_help}}</p></div></div>
       <div class="table-wrap"><table class="admin-table"><caption class="visually-hidden">{{.Text.audit_heading}}</caption><thead><tr><th scope="col">{{.Text.time_column}}</th><th scope="col">{{.Text.event_column}}</th><th scope="col">{{.Text.actor_column}}</th><th scope="col">{{.Text.target_column}}</th></tr></thead><tbody id="audit"><tr><td colspan="4">{{.Text.loading}}</td></tr></tbody></table></div>
       <button id="audit-more" type="button" class="secondary" hidden>{{.Text.load_more}}</button>
     </section>

@@ -14,6 +14,8 @@ PostgreSQL 由 `001_current.sql` 建立当前基线。已有迁移历史必须�
 
 ## 记录归属
 
+[注册体验活动](../feature/2026-11-09-registration-trial-campaigns.md)通过 `005_registration_campaigns.sql` 追加业务结构，沿用本篇唯一邮箱证明注册流程；活动赠送与账号创建同事务，不创建第二条领取或旧账号激活路径，当前部署数据保留。
+
 F2 与本篇部分重叠：原省察保留修复前的复现事实，当前状态互链到本篇。F1 由[推送撤回修复](../bug-fix/2026-11-04-push-withdrawal-independent-of-desktop-access.md)持有，本次统一数据库初始化不改变其缩减权限契约。桌面和 App 分别记录 IPC、证明存储及 SQLite 的清理；本仓没有其他同主题 proposed 或 rejected 笔记。
 
 ## Alternatives considered

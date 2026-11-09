@@ -60,6 +60,7 @@ jobs:
       - name: Administrator scoping, pagination, audit and code export UI regression
         run: |
           node --check internal/api/web/app.js
+          node --check internal/api/web/campaigns.js
           node --test scripts/tests/*.test.cjs
       - name: Public protocol vectors and deployment helpers
         run: |

@@ -21,7 +21,7 @@ func (a *Server) webRoutes() {
 	a.handle("POST /web/login", a.webLogin)
 	a.mux.HandleFunc("GET /assets/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
-		if name != "app.js" && name != "style.css" && name != "locale_zh-CN.json" && name != "locale_en.json" {
+		if name != "app.js" && name != "campaigns.js" && name != "style.css" && name != "locale_zh-CN.json" && name != "locale_en.json" {
 			http.NotFound(w, r)
 			return
 		}
@@ -30,7 +30,7 @@ func (a *Server) webRoutes() {
 			http.NotFound(w, r)
 			return
 		}
-		if name == "app.js" {
+		if name == "app.js" || name == "campaigns.js" {
 			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		} else if name == "style.css" {
 			w.Header().Set("Content-Type", "text/css; charset=utf-8")

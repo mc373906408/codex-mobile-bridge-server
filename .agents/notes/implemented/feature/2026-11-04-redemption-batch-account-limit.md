@@ -16,6 +16,8 @@ Status: implemented
 
 ## 记录归属
 
+[注册体验活动](2026-11-09-registration-trial-campaigns.md)把赠送写入相同服务有效期；后续兑换仍遵守本篇批次限制并从有效期或数据库当前时间顺延，赠送历史与兑换记录分别保留。
+
 - [当前数据库结构](../../implemented/simplification/2026-11-04-prerelease-account-and-binding-schema.md)部分重叠，继续持有拒绝旧开发库的决定；这次只追加当前部署版本的业务变更迁移，并互链。
 - [管理员与审计](../../implemented/bug-fix/2026-11-04-admin-management-and-audit.md)部分重叠，继续持有生成、导出和权限审计；批次规则归本篇。
 - 原架构审查、初始化默认密码被否提案、推送撤回和中继收尾与批次额度无关，保持各自归属；部署记录仍持有历史镜像和数据初始化事实，不重复重置数据库。

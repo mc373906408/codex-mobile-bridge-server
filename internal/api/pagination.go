@@ -31,9 +31,12 @@ func adminListQuery(r *http.Request) bool {
 		allowed["q"] = true
 	case "/v1/admin/audit":
 		allowed["account_id"] = true
-	case "/v1/admin/codes", "/v1/admin/redemptions":
+	case "/v1/admin/codes", "/v1/admin/redemptions", "/v1/admin/registration-campaigns":
 	default:
 		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) == 6 && strings.Join(parts[:4], "/") == "/v1/admin/registration-campaigns" && validID(parts[4]) == nil && parts[5] == "grants" {
+			break
+		}
 		if len(parts) != 6 || strings.Join(parts[:4], "/") != "/v1/admin/users" || validID(parts[4]) != nil {
 			return false
 		}
@@ -134,7 +137,8 @@ func (a *Server) listPage(w http.ResponseWriter, r *http.Request, key, scope, qu
 		last := items[len(items)-1]
 		cursor = pageCursor{Scope: scope, ID: last["id"].(string)}
 		if timeColumn != "" {
-			cursor.Time = last["created_at"].(time.Time)
+			// Callers select the ordering timestamp under its unqualified column name.
+			cursor.Time = last[timeColumn[strings.LastIndex(timeColumn, ".")+1:]].(time.Time)
 		}
 		encoded, err := json.Marshal(cursor)
 		if err != nil {

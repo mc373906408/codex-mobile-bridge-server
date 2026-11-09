@@ -12,6 +12,12 @@ import (
 )
 
 func (a *Server) adminRoutes() {
+	a.handle("GET /v1/admin/registration-campaigns", a.adminCampaigns)
+	a.handle("POST /v1/admin/registration-campaigns", a.adminCreateCampaign)
+	a.handle("PATCH /v1/admin/registration-campaigns/{id}", func(w http.ResponseWriter, r *http.Request) error { return a.adminChangeCampaign(w, r, "edit") })
+	a.handle("POST /v1/admin/registration-campaigns/{id}/activate", func(w http.ResponseWriter, r *http.Request) error { return a.adminChangeCampaign(w, r, "activate") })
+	a.handle("POST /v1/admin/registration-campaigns/{id}/stop", func(w http.ResponseWriter, r *http.Request) error { return a.adminChangeCampaign(w, r, "stop") })
+	a.handle("GET /v1/admin/registration-campaigns/{id}/grants", a.adminCampaignGrants)
 	a.handle("GET /v1/admin/users", a.adminUsers)
 	a.handle("POST /v1/admin/users", a.adminCreateUser)
 	a.handle("POST /v1/admin/users/{id}/disable", a.adminDisable)
