@@ -36,7 +36,7 @@
   "audit_heading": "操作审计",
   "sign_out": "退出登录",
   "footer_control": "01 / 控制权留在设备端",
-  "footer_open_source": "MIT 开源 / 不排队执行离线命令",
+  "footer_open_source": "AGPLv3 源码 / 不排队执行离线命令",
   "not_activated": "未激活",
   "request_failed": "请求失败，请稍后重试。",
   "network_error": "连接失败，请刷新页面后重试。",

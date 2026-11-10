@@ -69,4 +69,6 @@ Android/iOS 云推送是可选功能，需要匹配的服务端凭据、客户�
 - [实现状态与验证范围](docs/implementation-status.md)
 - [全局架构、授权逻辑与范围审查](.agents/notes/implemented/architecture/2026-11-03-server-architecture-and-scope-audit.md)
 
-许可证：[MIT](LICENSE)。
+许可证：[GNU AGPLv3（仅第 3 版，AGPL-3.0-only）](LICENSE)，版权与适用范围见 [NOTICE](NOTICE)。第三方组件保留各自许可证。
+
+修改本服务并提供网络访问时，应按 AGPLv3 第 13 节向远程用户提供相应版本的对应源码，并将网页页脚的源码链接指向该版本。AGPLv3 允许商业使用；此前按 MIT 发布的版本仍保留原有授权。

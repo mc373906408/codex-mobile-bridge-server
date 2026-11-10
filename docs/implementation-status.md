@@ -429,7 +429,7 @@ no administrator reset, real email or vendor push was performed.
 
 ## Contract
 
-- The MIT Go/PostgreSQL core serves both hosted and independent selfhost modes.
+- The AGPL-3.0-only Go/PostgreSQL core serves both hosted and independent selfhost modes.
 - Hosted entitlement is account-wide service days, redeemed through client bearer
   authentication, not administrator website cookies. Desktop redemption is
   implemented; the mobile app currently has no purchase/redemption UI.

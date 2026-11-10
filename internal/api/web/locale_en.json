@@ -36,7 +36,7 @@
   "audit_heading": "Operation audit",
   "sign_out": "Sign out",
   "footer_control": "01 / CONTROL STAYS AT THE EDGE",
-  "footer_open_source": "MIT open source / No offline command queue",
+  "footer_open_source": "AGPLv3 source / No offline command queue",
   "not_activated": "not activated",
   "request_failed": "Request failed. Try again later.",
   "network_error": "Unable to connect. Refresh the page and try again.",

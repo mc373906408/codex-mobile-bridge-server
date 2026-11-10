@@ -12,7 +12,9 @@ Status: implemented
 
 后续 [云账号 Web](../feature/2026-11-07-cloud-web-proxy.md) 扩展普通账号网站和可信云代理；本篇的服务器不见业务明文约束仅适用于手机 Noise 中继，Web 信任边界由新记录持有。
 
-服务端采用 MIT 开源的 Go + PostgreSQL 单体，同一份代码支持 `hosted` 和 `selfhost`。PostgreSQL 保存账号、设备关系、服务天数和后台任务；WebSocket 中继的在线路由只保存在单个进程内。服务端不执行编码客户端会话，也不持有端到端加密的控制私钥或预览私钥。
+服务端采用 AGPL-3.0-only 开源的 Go + PostgreSQL 单体，同一份代码支持 `hosted` 和 `selfhost`。PostgreSQL 保存账号、设备关系、服务天数和后台任务；WebSocket 中继的在线路由只保存在单个进程内。服务端不执行编码客户端会话，也不持有端到端加密的控制私钥或预览私钥。
+
+当前许可范围和网络源码提供要求由 [AGPLv3 许可决定](../process/2026-11-10-agplv3-license.md)持有。此前的 [Server 商业使用许可边界](../../rejected/process/2026-11-09-server-commercial-use-license.md)保留被否路线及原因；AGPLv3 仍允许商业使用。
 
 手机请求通道的自然关闭与共享桌面连接分离，已关闭通道的迟到记录仅在当前网关的有界身份记录内忽略，见[中继关闭隔离](../bug-fix/2026-11-04-relay-channel-close-isolation.md)。旧实现会把正常关闭回执误当非法路由并断开整个网关，该路径已修复。
 

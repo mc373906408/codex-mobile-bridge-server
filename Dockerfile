@@ -8,7 +8,9 @@ COPY internal/ ./internal/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/bridge-server ./cmd/bridge-server
 
 FROM gcr.io/distroless/static-debian12:nonroot
+LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /out/bridge-server /bridge-server
+COPY LICENSE NOTICE /usr/share/licenses/bridge-server/
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/bridge-server"]
