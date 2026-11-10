@@ -149,6 +149,63 @@ func TestProxyLiveStreamsCancelRevocationAndUnknownWrites(t *testing.T) {
 		}
 		next("cancel")
 	}
+	// New API methods and payloads pass through without a route or method table.
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		finished := make(chan error, 1)
+		go func() {
+			req, e := http.NewRequest(method, server.URL+"/proxy/api/a-future-feature", strings.NewReader(`{"value":"once"}`))
+			if e == nil {
+				var response *http.Response
+				response, e = http.DefaultClient.Do(req)
+				if e == nil {
+					_, e = io.Copy(io.Discard, response.Body)
+					response.Body.Close()
+					if response.StatusCode != 204 {
+						e = io.ErrUnexpectedEOF
+					}
+				}
+			}
+			finished <- e
+		}()
+		request := next("request")
+		if request.Method != method || request.Path != "/api/a-future-feature" || request.Length != len(`{"value":"once"}`) {
+			t.Fatal("request changed", method)
+		}
+		send(Message{Kind: "credit", ID: request.ID, Count: 4})
+		if got := next("data"); got.ID != request.ID || string(got.Data) != `{"value":"once"}` {
+			t.Fatal("write body changed", method)
+		}
+		next("request_end")
+		send(Message{Kind: "response_start", ID: request.ID, Status: 204})
+		next("credit")
+		send(Message{Kind: "response_end", ID: request.ID})
+		if err := <-finished; err != nil {
+			t.Fatal(method, err)
+		}
+		next("cancel")
+	}
+	// A nonzero HEAD Content-Length describes GET bytes, not missing body data.
+	headDone := make(chan *http.Response, 1)
+	go func() {
+		req, _ := http.NewRequest(http.MethodHead, server.URL+"/proxy/api/a-future-feature", nil)
+		response, _ := http.DefaultClient.Do(req)
+		headDone <- response
+	}()
+	head := next("request")
+	next("request_end")
+	send(Message{Kind: "response_start", ID: head.ID, Status: 200, Headers: map[string]string{"Content-Length": "32"}})
+	next("credit")
+	send(Message{Kind: "response_end", ID: head.ID})
+	if response := <-headDone; response == nil {
+		t.Fatal("HEAD failed")
+	} else {
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil || len(body) != 0 || response.Header.Get("Content-Length") != "32" {
+			t.Fatal("HEAD framing", err)
+		}
+	}
+	next("cancel")
 	// A maximum-size upload crosses the actual HTTP and WebSocket readers once.
 	uploadResult := make(chan error, 1)
 	go func() {
@@ -289,7 +346,8 @@ func TestProxyLiveStreamsCancelRevocationAndUnknownWrites(t *testing.T) {
 	// A write with a lost response is delivered once, never retried by the proxy.
 	done := make(chan struct{})
 	go func() {
-		r, _ := http.Post(server.URL+"/proxy/api/sessions", "application/json", bytes.NewBufferString(`{}`))
+		req, _ := http.NewRequest(http.MethodPatch, server.URL+"/proxy/api/a-future-feature", bytes.NewBufferString(`{}`))
+		r, _ := http.DefaultClient.Do(req)
 		if r != nil {
 			io.Copy(io.Discard, r.Body)
 			r.Body.Close()

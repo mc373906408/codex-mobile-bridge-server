@@ -8,7 +8,7 @@
 
 Web 使用 HTTPS 和单独的 `bridge-web-proxy-v1` 出站 WSS，云服务会处理聊天与文件明文。它不创建手机安装记录、不授予手机绑定权限。手机保持原 8787 入口、Noise v2、桌面批准和 P2P。
 
-浏览器 Cookie 为 HttpOnly、Secure、SameSite=Strict，只有 `web_client` 用途会话可用。Cookie 不按端口隔离，服务端使用独立 Cookie 名称、精确 Host、Origin、CSRF 和用途检查。管理员 Cookie、普通 Web Cookie、原生 Bearer 互不替代。Web 不能访问管理、配对、云账号配置和任意 URL；转发不携带浏览器 Cookie、Authorization 或桌面登录凭据。
+浏览器 Cookie 为 HttpOnly、Secure、SameSite=Strict，只有 `web_client` 用途会话可用。Cookie 不按端口隔离，服务端使用独立 Cookie 名称、精确 Host、Origin、CSRF 和用途检查。管理员 Cookie、普通 Web Cookie、原生 Bearer 互不替代。转发层不维护业务接口白名单或黑名单，桌面 HTTP 处理器校验各接口的权限和能力；目标限定为所选桌面的相对路径。转发不携带浏览器 Cookie、Authorization 或桌面登录凭据。
 
 Web 会话最多 12 小时，退出、禁用、撤销及服务到期取消相关请求。桌面切换云账号或关闭时销毁内部 Web 会话。终端使用既有 HTTP 轮询；聊天保留 SSE。中断的写入不自动重放。单次文件/上传上限 20 MiB，每浏览器会话 8 个请求、每桌面 64 个请求；超过 1 MiB 的传输每浏览器 1 个、每桌面 2 个，按 `BRIDGE_BYTES_PER_SECOND` 对 Web 通道节流。
 
@@ -49,6 +49,8 @@ https://bridge.waken.cloudns.be:18787 {
 ## 当前部署验证
 
 生产 18787 已于 2026-11-07 启用，2026-11-08 复核外网 HTTPS、原 8787 能力接口、服务端与数据库健康状态，以及原账号和设备记录保留。本机 Windows 网关更新后，用户在 Edge 使用现有云账号登录，已成功打开在线电脑的原桌面网站、真实聊天列表及当前聊天内容，无需逐浏览器批准。
+
+2026-11-10 已部署 `http-forwarding-20261110-d35a7a5`，移除转发层方法清单并支持非 GET/HEAD 正文和 HEAD 响应语义。公网两个入口的证书、健康和登录页验证通过；未登录的 PATCH/HEAD 桌面请求返回 401，跨 Origin 仍返回 403。数据库结构不变，账号/设备等持久记录摘要一致；原数据库、HTTPS、P2P 容器保持运行，桌面和 Lenovo 手机已重新连接并读取聊天列表。详情见[通用转发记录](../.agents/notes/implemented/architecture/2026-11-10-http-forwarding-without-route-policy.md)。
 
 2026-11-08 入口页改为与桌面原版网页一致的字体、蓝色按钮、圆角控件和深浅色风格；登录后仅显示账号与电脑卡片，离线和空列表有明确提示。独立入口样式不影响管理后台。改版已部署，完成实际账号、原版网页连接及桌面/390px 手机宽度的浏览器验证。
 

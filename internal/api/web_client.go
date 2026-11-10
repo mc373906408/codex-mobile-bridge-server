@@ -47,10 +47,7 @@ func (a *Server) clientCSRF(r *http.Request, token string) error {
 }
 func (a *Server) serveWebClient(w http.ResponseWriter, r *http.Request) error {
 	path := r.URL.Path
-	if r.Method != http.MethodGet && r.Method != http.MethodPost {
-		return failure{405, "method_not_allowed"}
-	}
-	if r.Method == http.MethodGet && (r.ContentLength != 0 || len(r.TransferEncoding) != 0) {
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && (r.ContentLength != 0 || len(r.TransferEncoding) != 0) {
 		return bad("get_body_not_allowed")
 	}
 	if r.Header.Get("Origin") != "" && r.Header.Get("Origin") != a.Config.WebOrigin {

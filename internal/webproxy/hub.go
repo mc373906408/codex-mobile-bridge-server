@@ -390,7 +390,7 @@ func (h *Hub) Proxy(w http.ResponseWriter, r *http.Request, principal store.Prin
 	}()
 	var body []byte
 	var err error
-	if r.Method == http.MethodPost {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		controller := http.NewResponseController(w)
 		_ = controller.SetReadDeadline(time.Now().Add(45 * time.Second))
 		buffer := make([]byte, Chunk)
@@ -503,6 +503,10 @@ func (h *Hub) Proxy(w http.ResponseWriter, r *http.Request, principal store.Prin
 			if m.Status == 304 || m.Status == 204 {
 				expected = 0
 				delete(m.Headers, "Content-Length")
+			}
+			if r.Method == http.MethodHead {
+				// HEAD describes the representation but carries no response body.
+				expected = 0
 			}
 			if expected > 1024*1024 {
 				if err = h.promote(p, s); err != nil {

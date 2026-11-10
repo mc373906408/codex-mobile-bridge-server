@@ -37,7 +37,7 @@ func TestAccountWebLoginScopeAndLogout(t *testing.T) {
 	call := func(method, origin, path, body, csrf string, cookie *http.Cookie) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(method, origin+path, strings.NewReader(body))
-		if method == "POST" {
+		if method != http.MethodGet && method != http.MethodHead {
 			r.Header.Set("Content-Type", "application/json")
 			r.Header.Set("Origin", origin)
 			r.Header.Set("X-CSRF-Token", csrf)
@@ -82,6 +82,15 @@ func TestAccountWebLoginScopeAndLogout(t *testing.T) {
 	}
 	if w := call("GET", c.WebOrigin, "/d/"+own.ID+"/", "", "", cookie); w.Code != 503 {
 		t.Fatal("offline computer", w.Code)
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions} {
+		path := "/d/" + own.ID + "/api/a-future-feature"
+		if w := call(method, c.WebOrigin, path, `{}`, auth.CSRF, cookie); w.Code != 503 {
+			t.Fatal("authorized method did not reach forwarding", method, w.Code)
+		}
+		if w := call(method, c.WebOrigin, path, `{}`, "wrong", cookie); w.Code != 403 {
+			t.Fatal("write bypassed CSRF", method, w.Code)
+		}
 	}
 	if w := call("POST", c.WebOrigin, "/_bridge/logout", `{}`, "wrong", cookie); w.Code != 403 {
 		t.Fatal("missing CSRF", w.Code)
