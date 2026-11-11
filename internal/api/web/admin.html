@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf" content="{{.CSRF}}"><title>{{.Text.dashboard_title}}</title>
-  <link rel="stylesheet" href="/assets/style.css">{{if .Hosted}}<script src="/assets/campaigns.js" defer></script>{{end}}<script src="/assets/app.js" defer></script>
+  <meta name="color-scheme" content="light dark"><link rel="stylesheet" href="/assets/style.css">{{if .Hosted}}<script src="/assets/campaigns.js" defer></script><script src="/assets/topups.js" defer></script>{{end}}<script src="/assets/app.js" defer></script>
 </head>
 <body class="admin-page" data-admin="true" data-account-id="{{.Account.ID}}" data-account-login="{{.Account.Login}}" data-mode="{{.Mode}}" data-load-error="{{.Text.network_error}}">
 <a class="skip-link" href="#admin-content">{{.Text.skip_content}}</a>
@@ -62,6 +62,7 @@
         <tbody id="users"><tr><td colspan="{{if .Hosted}}6{{else}}4{{end}}">{{.Text.loading}}</td></tr></tbody>
       </table></div>
       <button id="users-more" type="button" class="secondary" hidden>{{.Text.load_more}}</button>
+      {{if .Hosted}}<button id="topup-resume" type="button" class="secondary" hidden>{{.Text.topup_resume}}</button>{{end}}
     </section>
     {{if .Hosted}}<section id="code-management" class="admin-section panel" aria-labelledby="codes-title">
       <div class="section-heading"><div><p class="eyebrow">{{.Text.codes_eyebrow}}</p><h2 id="codes-title">{{.Text.codes_heading}}</h2><p>{{.Text.codes_admin_help}}</p></div></div>
@@ -131,4 +132,15 @@
     <footer class="admin-footer"><span>{{.Text.footer_control}}</span><a href="https://github.com/mc373906408/codex-mobile-bridge-server">{{.Text.footer_open_source}}</a></footer>
   </main>
 </div>
+{{if .Hosted}}<dialog id="topup-dialog" class="admin-dialog" aria-labelledby="topup-title" aria-describedby="topup-help">
+  <div class="dialog-heading"><div><p class="eyebrow">{{.Text.hosting_official}}</p><h2 id="topup-title">{{.Text.topup_title}}</h2></div><button id="topup-close" type="button" class="secondary">{{.Text.topup_close}}</button></div>
+  <p id="topup-account" class="dialog-account"></p><p id="topup-expiry" class="fine"></p>
+  <p id="topup-help" class="fine">{{.Text.topup_help}}</p>
+  <form id="topup-form">
+    <label>{{.Text.topup_days}}<input name="days" type="number" min="1" max="3650" step="1" value="30" required></label>
+    <label>{{.Text.topup_note}}<textarea name="note" rows="3" maxlength="250" placeholder="{{.Text.topup_note_placeholder}}"></textarea></label>
+    <p id="topup-result" class="form-result" role="status" aria-live="polite"></p>
+    <button id="topup-submit" type="submit">{{.Text.topup_confirm}}</button>
+  </form>
+</dialog>{{end}}
 </body></html>

@@ -20,6 +20,8 @@ Status: implemented
 
 ## 记录归属
 
+[直接充值与控制台样式](../feature/2026-11-11-admin-topups-and-console-style.md)复用本篇管理员身份复查和同事务审计，增加账号天数充值回执；原设备管理、分页和撤销边界继续成立。
+
 [注册体验活动](../feature/2026-11-09-registration-trial-campaigns.md)复用本篇管理员权限、Origin/CSRF、事务内复查、审计和游标分页约束；活动规则与一次赠送由该篇持有。分页器使用所选排序时间列建立游标，支持赠送时间和创建时间。
 
 [原初始化提案](../../rejected/bug-fix/2026-11-04-administrator-ownership-and-audit.md)因默认密码取舍被否，保留原理由并互链。全局[省察](../../implemented/architecture/2026-11-03-server-architecture-and-scope-audit.md)部分重叠，更新 F3–F5 处置；[当前 schema](../../implemented/simplification/2026-11-04-prerelease-account-and-binding-schema.md)和[推送撤回](../../implemented/bug-fix/2026-11-04-push-withdrawal-independent-of-desktop-access.md)继续持有各自边界，无其他重复提案。

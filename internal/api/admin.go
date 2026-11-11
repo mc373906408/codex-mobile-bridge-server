@@ -23,6 +23,7 @@ func (a *Server) adminRoutes() {
 	a.handle("POST /v1/admin/users/{id}/disable", a.adminDisable)
 	a.handle("POST /v1/admin/users/{id}/reset", a.adminReset)
 	a.handle("POST /v1/admin/users/{id}/revoke-entitlement", a.adminRevokeEntitlement)
+	a.handle("POST /v1/admin/users/{id}/topups", a.adminTopup)
 	a.handle("GET /v1/admin/users/{account}/devices", a.adminDevices)
 	a.handle("GET /v1/admin/users/{account}/bindings", a.adminBindings)
 	a.handle("GET /v1/admin/users/{account}/sessions", a.adminSessions)

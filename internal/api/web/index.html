@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf" content="{{.CSRF}}"><title>{{if .Home}}{{.Text.home_title}}{{else}}{{.Text.page_title}}{{end}}</title>
-  <link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
+  <meta name="color-scheme" content="light dark"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
 </head>
 <body class="public-page" data-mode="{{.Mode}}" data-load-error="{{.Text.network_error}}">
 <header>

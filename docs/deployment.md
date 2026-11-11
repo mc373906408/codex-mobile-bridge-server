@@ -1,5 +1,19 @@
 # HTTPS deployment and recovery runbook
 
+## Official purchase QR image
+
+`GET /v1/sponsorship` returns `{ "image": "data:image/png;base64,..." }` with `Cache-Control: no-store`. It is public only in hosted mode at the official exact origin `https://bridge.waken.cloudns.be:8787`; self-host and other hosted deployments return `404 sponsorship_unavailable`. The server reads the fixed embedded `internal/api/web/sponsorship.png`, which encodes the official Xianyu purchase link. Replace that asset and rebuild the server to update the purchase destination; a desktop release is not required. Verify the decoded link before deploying a replacement.
+
+Deploy this endpoint before distributing desktops that fetch purchase images. Such desktops display a loading error against older servers and do not fall back to a bundled link. The image request does not require account login or service days, and it neither issues codes nor changes entitlements.
+
+## Administrator service-day top-ups
+
+Migration `006_admin_topups.sql` adds administrator top-up receipts without changing existing accounts or expiries. Back up the database before upgrading as described below. The hosted user list offers **Add service days** for verified, enabled non-administrator accounts; the server rejects this operation in self-host mode.
+
+`POST /v1/admin/users/{id}/topups` requires the existing administrator authentication and browser Origin/CSRF checks. Its JSON body contains `days` (integer 1–3650), `note` (optional, at most 1000 UTF-8 bytes), and a UUID `request_id`. The response includes `account_id`, `request_id`, `days`, `note`, `previous_expires_at`, `expires_at`, and `created_at`. The server adds days to the later of the locked current expiry or its UTC clock, and records `entitlement.topup` with the actor, session, target, and before/after expiry in the same transaction.
+
+Retries with the same administrator/request ID and payload return the original receipt without granting days again. Reusing that ID with different input returns a conflict. The browser keeps an unconfirmed operation in account-scoped session storage, offers an explicit check with the same request, and never automatically repeats a write. This is a manual service credit, not a payment or code-issuance endpoint.
+
 These are operator instructions for an explicitly authorized deployment.
 Code and isolated Go/PostgreSQL tests do not establish SMTP delivery or real-device
 push acceptance. Actual checks and remaining release gates are recorded in

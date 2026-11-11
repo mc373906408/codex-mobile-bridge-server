@@ -66,6 +66,9 @@ func TestAdministratorConsoleSeparatesHomeAndClientRedemption(t *testing.T) {
 			if c.Paid() != strings.Contains(page.Body.String(), `id="codes"`) || c.Paid() != strings.Contains(page.Body.String(), `href="#code-management"`) {
 				t.Fatal("code issuance must have its own hosted-only management section")
 			}
+			if c.Paid() != strings.Contains(page.Body.String(), `id="topup-dialog"`) || c.Paid() != strings.Contains(page.Body.String(), `/assets/topups.js`) {
+				t.Fatal("direct service-day top-ups must be hosted-only")
+			}
 			for _, cookies := range [][]*http.Cookie{nil, {cookie}} {
 				home := webRequest(t, a, "GET", "/", nil, nil, cookies...)
 				expectStatus(t, home, 200, "")

@@ -34,6 +34,7 @@ async function start() {
     if (!response.ok) {
       const error = new Error(text[`error_${value.code}`] || t("request_failed"));
       error.code = value.code;
+      error.status = response.status;
       throw error;
     }
     return value;
@@ -202,6 +203,8 @@ async function start() {
     document.getElementById("device-management")?.scrollIntoView?.({ block: "start" });
   }
   let users = [];
+  const topups = hosted && document.getElementById("topup-dialog")
+    ? createAdminTopups({document,t,request,notice,reload:async()=>{await loadUsers();await loadAudit();},date}) : null;
   function renderUsers() {
     const parent = document.getElementById("users"); parent.replaceChildren();
     const filter = document.getElementById("user-filter").value.trim().toLowerCase();
@@ -215,6 +218,10 @@ async function start() {
       manage.type = "button"; manage.disabled = selectedAccount.id === user.id;
       manage.addEventListener("click", () => selectAccount(user));
       buttons.unshift(manage);
+      if (topups && !user.administrator && user.verified && !user.disabled) {
+        const topup=element("button",t("topup_title"),"record-action topup-action");
+        topup.type="button";topup.addEventListener("click",()=>topups.open(user));buttons.unshift(topup);
+      }
       if (!user.administrator) {
         if (hosted) buttons.push(action(t("revoke_entitlement"), user.login, () => request(`/v1/admin/users/${user.id}/revoke-entitlement`, "POST", {})));
         else buttons.push(action(t("reset_password"), user.login, () => {

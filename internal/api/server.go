@@ -347,6 +347,7 @@ func (a *Server) routes() {
 	a.handle("GET /v1/account", a.account)
 	a.handle("DELETE /v1/account", a.deleteAccount)
 	a.handle("GET /v1/account/entitlement", a.entitlement)
+	a.handle("GET /v1/sponsorship", a.sponsorship)
 	a.handle("POST /v1/account/redeem", a.redeem)
 	a.deviceRoutes()
 	a.handle("GET /v1/ws/web-gateway", a.webGatewaySocket)
