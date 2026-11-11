@@ -6,6 +6,8 @@
 
 Deploy this endpoint before distributing desktops that fetch purchase images. Such desktops display a loading error against older servers and do not fall back to a bundled link. The image request does not require account login or service days, and it neither issues codes nor changes entitlements.
 
+The official service was upgraded on 2026-11-11 to `cloud-console-20261111-597c8b8`, including migration 006, the refreshed console and this public image endpoint. Encrypted backup restoration and candidate/rollback migration rehearsals passed; existing account, entitlement and device data were preserved. The old binary rejects the new migration name, so rollback uses the prepared migration-compatible image rather than deleting migration history or restoring over newer writes. Deployment evidence and the corrected web-origin 401 probe are recorded in the [deployment note](../.agents/notes/implemented/process/2026-11-11-cloud-console-deployment.md).
+
 ## Administrator service-day top-ups
 
 Migration `006_admin_topups.sql` adds administrator top-up receipts without changing existing accounts or expiries. Back up the database before upgrading as described below. The hosted user list offers **Add service days** for verified, enabled non-administrator accounts; the server rejects this operation in self-host mode.
